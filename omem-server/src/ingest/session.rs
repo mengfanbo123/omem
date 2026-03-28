@@ -206,6 +206,46 @@ impl SessionStore {
         Self::batches_to_messages(&batches)
     }
 
+    pub async fn delete_by_session_id(&self, session_id: &str) -> Result<usize, OmemError> {
+        let table = self.open_table().await?;
+        let filter = format!("session_id = '{}'", escape_sql(session_id));
+
+        let batches: Vec<RecordBatch> = table
+            .query()
+            .only_if(&filter)
+            .execute()
+            .await
+            .map_err(|e| OmemError::Storage(format!("session count query failed: {e}")))?
+            .try_collect()
+            .await
+            .map_err(|e| OmemError::Storage(format!("collect failed: {e}")))?;
+        let count: usize = batches.iter().map(|b| b.num_rows()).sum();
+
+        if count > 0 {
+            table
+                .delete(&filter)
+                .await
+                .map_err(|e| OmemError::Storage(format!("delete sessions: {e}")))?;
+        }
+        Ok(count)
+    }
+
+    pub async fn delete_all(&self) -> Result<usize, OmemError> {
+        let table = self.open_table().await?;
+        let count = table
+            .count_rows(None)
+            .await
+            .map_err(|e| OmemError::Storage(format!("count: {e}")))?;
+
+        if count > 0 {
+            table
+                .delete("1 = 1")
+                .await
+                .map_err(|e| OmemError::Storage(format!("delete all: {e}")))?;
+        }
+        Ok(count)
+    }
+
     /// Check if a content_hash already exists in the sessions table (dedup).
     pub async fn exists_by_hash(&self, content_hash: &str) -> Result<bool, OmemError> {
         let existing = self.get_existing_hashes(&[content_hash]).await?;

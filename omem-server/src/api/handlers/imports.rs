@@ -307,3 +307,43 @@ fn sha256_hex(content: &str) -> String {
         .map(|b| format!("{b:02x}"))
         .collect()
 }
+
+pub async fn rollback_import(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthInfo>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, OmemError> {
+    let task = state
+        .space_store
+        .get_import_task(&id)
+        .await?
+        .ok_or_else(|| OmemError::NotFound(format!("import task {id}")))?;
+
+    let session_store = SessionStore::new(&state.config.store_uri())
+        .await
+        .map_err(|e| OmemError::Storage(format!("session store: {e}")))?;
+    session_store.init_table().await?;
+    let sessions_deleted = session_store
+        .delete_by_session_id(&format!("import-{id}"))
+        .await?;
+
+    let store = state
+        .store_manager
+        .get_store(&personal_space_id(&auth.tenant_id))
+        .await?;
+    let filter = format!(
+        "source = 'intelligence' AND created_at >= '{}'",
+        task.created_at.replace('\'', "''")
+    );
+    let memories_deleted = store.batch_soft_delete(&filter).await?;
+
+    let mut updated_task = task;
+    updated_task.status = "rolled_back".to_string();
+    state.space_store.update_import_task(&updated_task).await?;
+
+    Ok(Json(serde_json::json!({
+        "deleted_memories": memories_deleted,
+        "deleted_sessions": sessions_deleted,
+        "import_status": "rolled_back"
+    })))
+}

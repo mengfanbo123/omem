@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::extract::{Extension, Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
@@ -466,4 +466,135 @@ pub async fn list_memories(
         limit: params.limit,
         offset: params.offset,
     }))
+}
+
+// ── Batch Delete ─────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct BatchDeleteRequest {
+    pub memory_ids: Option<Vec<String>>,
+    pub filter: Option<BatchDeleteFilter>,
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+#[derive(Deserialize)]
+pub struct BatchDeleteFilter {
+    pub source: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub category: Option<String>,
+    pub memory_type: Option<String>,
+    pub state: Option<String>,
+    pub before: Option<String>,
+}
+
+fn build_batch_delete_where(filter: &BatchDeleteFilter) -> String {
+    let mut conditions = Vec::new();
+
+    if let Some(ref source) = filter.source {
+        conditions.push(format!(
+            "source LIKE '{}%'",
+            source.replace('\'', "''")
+        ));
+    }
+    if let Some(ref tags) = filter.tags {
+        for tag in tags {
+            let escaped = tag.replace('\'', "''");
+            conditions.push(format!("(tags LIKE '%\"{}\"%')", escaped));
+        }
+    }
+    if let Some(ref cat) = filter.category {
+        conditions.push(format!("category = '{}'", cat.replace('\'', "''")));
+    }
+    if let Some(ref mt) = filter.memory_type {
+        conditions.push(format!("memory_type = '{}'", mt.replace('\'', "''")));
+    }
+    if let Some(ref state) = filter.state {
+        conditions.push(format!("state = '{}'", state.replace('\'', "''")));
+    }
+    if let Some(ref before) = filter.before {
+        conditions.push(format!("created_at < '{}'", before.replace('\'', "''")));
+    }
+
+    if conditions.is_empty() {
+        "true".to_string()
+    } else {
+        conditions.join(" AND ")
+    }
+}
+
+pub async fn batch_delete(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthInfo>,
+    Json(body): Json<BatchDeleteRequest>,
+) -> Result<Json<serde_json::Value>, OmemError> {
+    let store = state
+        .store_manager
+        .get_store(&personal_space_id(&auth.tenant_id))
+        .await?;
+
+    if let Some(ids) = body.memory_ids {
+        let mut deleted = 0usize;
+        for id in &ids {
+            if store.get_by_id(id).await?.is_some() {
+                store.soft_delete(id).await?;
+                deleted += 1;
+            }
+        }
+        return Ok(Json(serde_json::json!({
+            "deleted": deleted,
+            "mode": "ids"
+        })));
+    }
+
+    if let Some(ref filter) = body.filter {
+        let where_clause = build_batch_delete_where(filter);
+
+        if !body.confirm {
+            let count = store.count_by_filter(&where_clause).await?;
+            return Ok(Json(serde_json::json!({
+                "would_delete": count
+            })));
+        }
+
+        let deleted = store.batch_soft_delete(&where_clause).await?;
+        return Ok(Json(serde_json::json!({
+            "deleted": deleted,
+            "mode": "filter"
+        })));
+    }
+
+    Err(OmemError::Validation(
+        "provide either memory_ids or filter".to_string(),
+    ))
+}
+
+pub async fn delete_all_memories(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthInfo>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, OmemError> {
+    let confirm = headers.get("X-Confirm").and_then(|v| v.to_str().ok());
+    if confirm != Some("delete-all") {
+        return Err(OmemError::Validation(
+            "DELETE /v1/memories/all requires X-Confirm: delete-all header".to_string(),
+        ));
+    }
+
+    let store = state
+        .store_manager
+        .get_store(&personal_space_id(&auth.tenant_id))
+        .await?;
+    let count = store.delete_all().await?;
+
+    let session_store = SessionStore::new(&state.config.store_uri())
+        .await
+        .map_err(|e| OmemError::Storage(format!("session store: {e}")))?;
+    session_store.init_table().await?;
+    let sessions_cleared = session_store.delete_all().await?;
+
+    Ok(Json(serde_json::json!({
+        "deleted": count,
+        "sessions_cleared": sessions_cleared
+    })))
 }

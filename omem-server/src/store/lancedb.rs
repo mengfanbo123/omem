@@ -682,6 +682,47 @@ impl LanceStore {
         Self::batch_to_memories(&batches)
     }
 
+    pub async fn batch_soft_delete(&self, filter: &str) -> Result<usize, OmemError> {
+        let table = self.open_table().await?;
+        let full_filter = format!("{} AND state != 'deleted'", filter);
+        let batches: Vec<RecordBatch> = table
+            .query()
+            .only_if(&full_filter)
+            .execute()
+            .await
+            .map_err(|e| OmemError::Storage(format!("batch_soft_delete query failed: {e}")))?
+            .try_collect()
+            .await
+            .map_err(|e| OmemError::Storage(format!("collect failed: {e}")))?;
+
+        let memories = Self::batch_to_memories(&batches)?;
+        let count = memories.len();
+
+        for mem in memories {
+            self.soft_delete(&mem.id).await?;
+        }
+        Ok(count)
+    }
+
+    pub async fn count_by_filter(&self, filter: &str) -> Result<usize, OmemError> {
+        let table = self.open_table().await?;
+        let full_filter = format!("{} AND state != 'deleted'", filter);
+        let count = table
+            .count_rows(Some(full_filter))
+            .await
+            .map_err(|e| OmemError::Storage(format!("count_by_filter failed: {e}")))?;
+        Ok(count)
+    }
+
+    pub async fn delete_all(&self) -> Result<usize, OmemError> {
+        let all = self.list_all_active().await?;
+        let count = all.len();
+        for mem in all {
+            self.soft_delete(&mem.id).await?;
+        }
+        Ok(count)
+    }
+
     fn build_where_clause(filter: &ListFilter) -> String {
         let mut conditions = Vec::new();
 
