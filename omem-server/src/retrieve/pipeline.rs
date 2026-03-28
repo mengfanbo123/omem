@@ -20,6 +20,9 @@ pub struct SearchRequest {
     pub limit: Option<usize>,
     pub min_score: Option<f32>,
     pub include_trace: bool,
+    pub tags_filter: Option<Vec<String>>,
+    pub source_filter: Option<String>,
+    pub agent_id_filter: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -757,6 +760,9 @@ mod tests {
             limit: Some(10),
             min_score: Some(0.0),
             include_trace: true,
+            tags_filter: None,
+            source_filter: None,
+            agent_id_filter: None,
         };
 
         let results = pipeline.search(&request).await.expect("search");
@@ -817,6 +823,9 @@ mod tests {
             limit: Some(10),
             min_score: Some(0.0),
             include_trace: false,
+            tags_filter: None,
+            source_filter: None,
+            agent_id_filter: None,
         };
 
         let results = pipeline.search(&request).await.expect("search");
@@ -891,6 +900,9 @@ mod tests {
             limit: Some(10),
             min_score: Some(0.0),
             include_trace: true,
+            tags_filter: None,
+            source_filter: None,
+            agent_id_filter: None,
         };
 
         let results = pipeline
@@ -922,6 +934,9 @@ mod tests {
             limit: Some(10),
             min_score: Some(0.0),
             include_trace: true,
+            tags_filter: None,
+            source_filter: None,
+            agent_id_filter: None,
         };
 
         let results = pipeline.search(&request).await.expect("search");
@@ -961,6 +976,9 @@ mod tests {
             limit: Some(10),
             min_score: None,
             include_trace: false,
+            tags_filter: None,
+            source_filter: None,
+            agent_id_filter: None,
         };
 
         let results = pipeline

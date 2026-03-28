@@ -54,6 +54,9 @@ pub struct SearchQuery {
     #[serde(default)]
     pub include_trace: bool,
     pub space: Option<String>,
+    pub tags: Option<String>,
+    pub source: Option<String>,
+    pub agent_id: Option<String>,
 }
 
 fn default_limit() -> usize {
@@ -234,6 +237,9 @@ pub async fn search_memories(
             limit: Some(params.limit),
             min_score: params.min_score,
             include_trace: params.include_trace,
+            tags_filter: params.tags.as_ref().map(|t| t.split(',').map(|s| s.trim().to_string()).collect()),
+            source_filter: params.source.clone(),
+            agent_id_filter: params.agent_id.clone(),
         };
 
         let retrieval_pipeline = RetrievalPipeline::new(store);
@@ -282,6 +288,9 @@ pub async fn search_memories(
             limit: Some(params.limit),
             min_score: params.min_score,
             include_trace: false,
+            tags_filter: params.tags.as_ref().map(|t| t.split(',').map(|s| s.trim().to_string()).collect()),
+            source_filter: params.source.clone(),
+            agent_id_filter: params.agent_id.clone(),
         };
 
         let pipeline = RetrievalPipeline::new(acc.store.clone());

@@ -31,6 +31,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/stats/sharing", get(handlers::get_sharing_stats))
         .route("/v1/stats/agents", get(handlers::get_agents_stats))
         .route("/v1/files", post(handlers::upload_file))
+        .route("/v1/imports", post(handlers::create_import).get(handlers::list_imports))
+        .route("/v1/imports/{id}", get(handlers::get_import))
         .route(
             "/v1/connectors/github/connect",
             post(handlers::github_connect),
