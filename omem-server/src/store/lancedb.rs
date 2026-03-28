@@ -56,7 +56,22 @@ pub struct LanceStore {
 
 impl LanceStore {
     pub async fn new(uri: &str) -> Result<Self, OmemError> {
-        let db = lancedb::connect(uri)
+        let mut builder = lancedb::connect(uri);
+
+        // For S3-compatible stores (e.g., Alibaba Cloud OSS), pass through
+        // virtual-hosted style and endpoint configuration.
+        if uri.starts_with("s3://") {
+            if let Ok(val) = std::env::var("AWS_VIRTUAL_HOSTED_STYLE_REQUEST") {
+                builder = builder.storage_option("aws_virtual_hosted_style_request", val);
+            }
+            if let Ok(val) = std::env::var("AWS_ENDPOINT_URL") {
+                builder = builder.storage_option("aws_endpoint_url", val);
+            } else if let Ok(val) = std::env::var("AWS_ENDPOINT") {
+                builder = builder.storage_option("aws_endpoint_url", val);
+            }
+        }
+
+        let db = builder
             .execute()
             .await
             .map_err(|e| OmemError::Storage(format!("failed to connect to LanceDB: {e}")))?;

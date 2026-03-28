@@ -5,6 +5,7 @@ pub struct OmemConfig {
     pub port: u16,
     pub log_level: String,
     pub s3_bucket: String,
+    pub oss_bucket: String,
     pub embed_provider: String,
     pub llm_provider: String,
     pub llm_api_key: String,
@@ -21,6 +22,7 @@ impl Default for OmemConfig {
             port: 8080,
             log_level: "info".to_string(),
             s3_bucket: String::new(),
+            oss_bucket: String::new(),
             embed_provider: "noop".to_string(),
             llm_provider: String::new(),
             llm_api_key: String::new(),
@@ -43,6 +45,7 @@ impl OmemConfig {
                 .unwrap_or(defaults.port),
             log_level: env::var("OMEM_LOG_LEVEL").unwrap_or(defaults.log_level),
             s3_bucket: env::var("OMEM_S3_BUCKET").unwrap_or(defaults.s3_bucket),
+            oss_bucket: env::var("OMEM_OSS_BUCKET").unwrap_or(defaults.oss_bucket),
             embed_provider: env::var("OMEM_EMBED_PROVIDER").unwrap_or(defaults.embed_provider),
             llm_provider: env::var("OMEM_LLM_PROVIDER").unwrap_or(defaults.llm_provider),
             llm_api_key: env::var("OMEM_LLM_API_KEY").unwrap_or(defaults.llm_api_key),
@@ -55,10 +58,12 @@ impl OmemConfig {
     }
 
     pub fn store_uri(&self) -> String {
-        if self.s3_bucket.is_empty() {
-            "./omem-data".to_string()
-        } else {
+        if !self.oss_bucket.is_empty() {
+            format!("oss://{}/omem", self.oss_bucket)
+        } else if !self.s3_bucket.is_empty() {
             format!("s3://{}/omem", self.s3_bucket)
+        } else {
+            "./omem-data".to_string()
         }
     }
 }
