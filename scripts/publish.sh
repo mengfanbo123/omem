@@ -15,6 +15,7 @@ rm -rf "$TEMP_DIR/plugins" "$TEMP_DIR/skills" "$TEMP_DIR/docs" "$TEMP_DIR/eval" 
 cp -r "$PROJECT_DIR/plugins" "$TEMP_DIR/plugins"
 cp -r "$PROJECT_DIR/skills" "$TEMP_DIR/skills"
 cp -r "$PROJECT_DIR/docs" "$TEMP_DIR/docs"
+rm -f "$TEMP_DIR/docs/AGENTS.md"
 cp -r "$PROJECT_DIR/eval" "$TEMP_DIR/eval" 2>/dev/null || true
 cp -r "$PROJECT_DIR/.cargo" "$TEMP_DIR/.cargo"
 
