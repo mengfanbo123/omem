@@ -92,11 +92,31 @@ Replace `YOUR_API_KEY` in the config above with the actual key from Step 1.
 
 Double-check the `serverUrl` is `https://api.ourmem.ai` (not localhost).
 
+### MCP Server (Cursor / VS Code / Claude Desktop)
+
+Add to your MCP config:
+
+```json
+{
+  "mcpServers": {
+    "ourmem": {
+      "command": "npx",
+      "args": ["@ourmem/mcp"],
+      "env": {
+        "OMEM_API_URL": "https://api.ourmem.ai",
+        "OMEM_API_KEY": "YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
 ## Step 4: Restart
 
 - **OpenCode**: restart the `opencode` process
 - **Claude Code**: restart `claude`
 - **OpenClaw**: restart the gateway
+- **MCP clients**: restart the app
 
 The plugin needs a fresh start to load. Wait about a minute, then send a test message.
 

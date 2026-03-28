@@ -58,15 +58,37 @@ Download the pre-built binary for your platform from the GitHub releases page:
 
 ```bash
 # Download (replace with actual release URL)
-curl -LO https://github.com/yhyyz/omem/releases/latest/download/omem-server-linux-amd64
+curl -LO https://github.com/ourmem/omem/releases/latest/download/omem-server-linux-amd64
 chmod +x omem-server-linux-amd64
 
 # Run
 OMEM_PORT=8080 \
 OMEM_EMBED_PROVIDER=noop \
-OMEM_S3_BUCKET=omem-data \
-AWS_REGION=us-east-1 \
 ./omem-server-linux-amd64
+```
+
+## Option C: Build from source (musl static binary)
+
+Build a single static binary that runs on **any Linux x86_64** with zero dependencies:
+
+```bash
+rustup target add x86_64-unknown-linux-musl
+
+RUSTFLAGS="-C target-feature=+crt-static -C relocation-model=static" \
+  cargo build --release --target x86_64-unknown-linux-musl \
+  -p omem-server --no-default-features
+
+# Binary: target/x86_64-unknown-linux-musl/release/omem-server (182MB, statically linked)
+```
+
+Note: `--no-default-features` disables AWS Bedrock support. Use `OMEM_EMBED_PROVIDER=openai-compatible` instead (e.g. DashScope, OpenAI).
+
+Transfer to any server:
+
+```bash
+gzip -c target/x86_64-unknown-linux-musl/release/omem-server > omem-server.gz
+scp omem-server.gz user@server:/opt/
+ssh user@server "gunzip /opt/omem-server.gz && chmod +x /opt/omem-server && /opt/omem-server"
 ```
 
 ## Step 1: Create API Key
@@ -191,4 +213,39 @@ Key server-side variables (set in `.env` or Docker environment):
 
 For production with real embeddings, set `OMEM_EMBED_PROVIDER=bedrock` (or `openai-compatible` with your endpoint).
 
-See `docs/DEPLOY.md` for the full environment variable reference and AWS deployment guide.
+### Example: DashScope (Alibaba Cloud)
+
+```bash
+OMEM_EMBED_PROVIDER=openai-compatible
+OMEM_EMBED_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode
+OMEM_EMBED_MODEL=text-embedding-v3
+OMEM_EMBED_API_KEY=sk-your-dashscope-key
+OMEM_LLM_PROVIDER=openai-compatible
+OMEM_LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode
+OMEM_LLM_MODEL=qwen-turbo
+OMEM_LLM_API_KEY=sk-your-dashscope-key
+```
+
+### Example: OpenAI
+
+```bash
+OMEM_EMBED_PROVIDER=openai-compatible
+OMEM_EMBED_BASE_URL=https://api.openai.com
+OMEM_EMBED_MODEL=text-embedding-3-small
+OMEM_EMBED_API_KEY=sk-your-openai-key
+OMEM_LLM_PROVIDER=openai-compatible
+OMEM_LLM_BASE_URL=https://api.openai.com
+OMEM_LLM_MODEL=gpt-4o-mini
+OMEM_LLM_API_KEY=sk-your-openai-key
+```
+
+### Example: AWS Bedrock (glibc build only)
+
+```bash
+OMEM_EMBED_PROVIDER=bedrock
+OMEM_LLM_PROVIDER=bedrock
+OMEM_LLM_MODEL=anthropic.claude-3-haiku-20240307-v1:0
+AWS_REGION=us-east-1
+```
+
+See `docs/DEPLOY.md` for the full environment variable reference and deployment guide.
