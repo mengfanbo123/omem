@@ -56,8 +56,9 @@ CHANGES=$(git status --porcelain | wc -l)
 if [ "$CHANGES" -eq 0 ]; then
     echo "✅ No changes to publish."
 else
+    LATEST_MSG=$(cd "$PROJECT_DIR" && git log -1 --pretty=format:"%s")
     git -c user.name="ourmem" -c user.email="ourmem@users.noreply.github.com" \
-        commit -m "sync: update public release $(date +%Y-%m-%d)"
+        commit -m "$LATEST_MSG"
     git push origin main 2>&1
     echo "✅ Published $CHANGES files to ourmem/omem"
 fi
