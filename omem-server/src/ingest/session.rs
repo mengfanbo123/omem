@@ -187,6 +187,85 @@ impl SessionStore {
         Ok(result)
     }
 
+    /// Find all session messages by exact session_id.
+    pub async fn find_by_session_id(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<SessionMessage>, OmemError> {
+        let table = self.open_table().await?;
+        let batches: Vec<RecordBatch> = table
+            .query()
+            .only_if(format!("session_id = '{}'", escape_sql(session_id)))
+            .execute()
+            .await
+            .map_err(|e| OmemError::Storage(format!("session query failed: {e}")))?
+            .try_collect()
+            .await
+            .map_err(|e| OmemError::Storage(format!("collect failed: {e}")))?;
+
+        Self::batches_to_messages(&batches)
+    }
+
+    /// Check if a content_hash already exists in the sessions table (dedup).
+    pub async fn exists_by_hash(&self, content_hash: &str) -> Result<bool, OmemError> {
+        let existing = self.get_existing_hashes(&[content_hash]).await?;
+        Ok(!existing.is_empty())
+    }
+
+    fn batches_to_messages(batches: &[RecordBatch]) -> Result<Vec<SessionMessage>, OmemError> {
+        let mut messages = Vec::new();
+        for batch in batches {
+            let ids = batch
+                .column_by_name("id")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .ok_or_else(|| OmemError::Storage("missing id column".to_string()))?;
+            let session_ids = batch
+                .column_by_name("session_id")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .ok_or_else(|| OmemError::Storage("missing session_id column".to_string()))?;
+            let agent_ids = batch
+                .column_by_name("agent_id")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .ok_or_else(|| OmemError::Storage("missing agent_id column".to_string()))?;
+            let roles = batch
+                .column_by_name("role")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .ok_or_else(|| OmemError::Storage("missing role column".to_string()))?;
+            let contents = batch
+                .column_by_name("content")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .ok_or_else(|| OmemError::Storage("missing content column".to_string()))?;
+            let hashes = batch
+                .column_by_name("content_hash")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .ok_or_else(|| OmemError::Storage("missing content_hash column".to_string()))?;
+            let tags_col = batch
+                .column_by_name("tags")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .ok_or_else(|| OmemError::Storage("missing tags column".to_string()))?;
+            let created_ats = batch
+                .column_by_name("created_at")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .ok_or_else(|| OmemError::Storage("missing created_at column".to_string()))?;
+
+            for i in 0..batch.num_rows() {
+                let tags: Vec<String> =
+                    serde_json::from_str(tags_col.value(i)).unwrap_or_default();
+                messages.push(SessionMessage {
+                    id: ids.value(i).to_string(),
+                    session_id: session_ids.value(i).to_string(),
+                    agent_id: agent_ids.value(i).to_string(),
+                    role: roles.value(i).to_string(),
+                    content: contents.value(i).to_string(),
+                    content_hash: hashes.value(i).to_string(),
+                    tags,
+                    created_at: created_ats.value(i).to_string(),
+                });
+            }
+        }
+        Ok(messages)
+    }
+
     fn messages_to_batch(messages: &[&SessionMessage]) -> Result<RecordBatch, OmemError> {
         let ids: Vec<&str> = messages.iter().map(|m| m.id.as_str()).collect();
         let session_ids: Vec<&str> = messages.iter().map(|m| m.session_id.as_str()).collect();
@@ -360,6 +439,43 @@ mod tests {
         let count_b = store.count_by_session("sess-b").await.expect("count b");
         assert_eq!(count_a, 1);
         assert_eq!(count_b, 1);
+    }
+
+    #[tokio::test]
+    async fn find_by_session_id_returns_matching() {
+        let (store, _dir) = setup().await;
+
+        let msgs = vec![
+            SessionMessage::new("sess-a", "agent-1", "user", "hello from a", vec![]),
+            SessionMessage::new("sess-a", "agent-1", "assistant", "reply from a", vec![]),
+            SessionMessage::new("sess-b", "agent-1", "user", "hello from b", vec![]),
+        ];
+        store.bulk_create(&msgs).await.expect("insert");
+
+        let found = store.find_by_session_id("sess-a").await.expect("find");
+        assert_eq!(found.len(), 2);
+        assert!(found.iter().all(|m| m.session_id == "sess-a"));
+    }
+
+    #[tokio::test]
+    async fn find_by_session_id_empty_when_none() {
+        let (store, _dir) = setup().await;
+        let found = store
+            .find_by_session_id("nonexistent")
+            .await
+            .expect("find");
+        assert!(found.is_empty());
+    }
+
+    #[tokio::test]
+    async fn exists_by_hash_detects_existing() {
+        let (store, _dir) = setup().await;
+        let msg = SessionMessage::new("sess-1", "agent-1", "user", "hello", vec![]);
+        let hash = msg.content_hash.clone();
+        store.bulk_create(&[msg]).await.expect("insert");
+
+        assert!(store.exists_by_hash(&hash).await.expect("exists"));
+        assert!(!store.exists_by_hash("nonexistent_hash").await.expect("not exists"));
     }
 
     #[tokio::test]
