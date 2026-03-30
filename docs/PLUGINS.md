@@ -24,7 +24,7 @@ ourmem provides plugins for 4 AI coding platforms. Each plugin is a thin HTTP cl
 ## 1. OpenCode
 
 **Package**: `@ourmem/opencode`
-**Version**: 0.2.1
+**Version**: 0.3.0
 **Runtime**: Bun / Node
 **Source**: [`plugins/opencode/`](../plugins/opencode/)
 
@@ -36,7 +36,7 @@ ourmem provides plugins for 4 AI coding platforms. Each plugin is a thin HTTP cl
 | Keyword detection | Detects "remember", "save this", "记住", "记下来", etc. and nudges the agent to use `memory_store` (code-block aware) |
 | Context preservation on compaction | `session.compacting` hook re-injects top 20 memories so context survives compaction |
 | Privacy filtering | `<private>` tag redaction before storage |
-| 5 tools | `memory_store`, `memory_search`, `memory_get`, `memory_update`, `memory_delete` (all return structured JSON) |
+| 11 tools | **Memory:** `memory_store`, `memory_search`, `memory_get`, `memory_update`, `memory_delete` · **Sharing:** `space_create`, `space_list`, `space_add_member`, `memory_share`, `memory_pull`, `memory_reshare` |
 
 ### Installation
 
@@ -60,7 +60,7 @@ That's it. The plugin reads `OMEM_API_URL` and `OMEM_API_KEY` from environment v
 ### Verification
 
 ```bash
-# Start OpenCode — you should see 5 memory tools available
+# Start OpenCode — you should see 11 tools available (5 memory + 6 sharing)
 opencode
 
 # In the session, try:
@@ -75,7 +75,7 @@ On the first message of each session, relevant memories and your user profile ar
 ## 2. Claude Code
 
 **Package**: Marketplace plugin (bash hooks + skills + bundled MCP)
-**Version**: 0.2.1
+**Version**: 0.3.0
 **Runtime**: Bash 4+, curl, python3
 **Source**: [`plugins/claude-code/`](../plugins/claude-code/)
 
@@ -85,7 +85,7 @@ On the first message of each session, relevant memories and your user profile ar
 |---------|-------------|
 | 3 hooks | **SessionStart** (load 20 recent memories), **Stop** (smart-ingest last conversation messages), **PreCompact** (save conversation before context compaction) |
 | 2 skills | `memory-recall` (search by query), `memory-store` (manually save a memory) |
-| 9 MCP tools | Bundled `@ourmem/mcp` via `.mcp.json`: `memory_store`, `memory_search`, `memory_list`, `memory_ingest`, `memory_get`, `memory_update`, `memory_forget`, `memory_stats`, `memory_profile` |
+| 15 MCP tools | Bundled `@ourmem/mcp` via `.mcp.json`: **Memory:** `memory_store`, `memory_search`, `memory_list`, `memory_ingest`, `memory_get`, `memory_update`, `memory_forget`, `memory_stats`, `memory_profile` · **Sharing:** `space_create`, `space_list`, `space_add_member`, `memory_share`, `memory_pull`, `memory_reshare` |
 | Graceful degradation | If `OMEM_API_KEY` is not set, hooks skip silently and print setup instructions |
 
 ### Installation
@@ -130,7 +130,7 @@ On session start, recent memories are injected into context. On session end, the
 ## 3. OpenClaw
 
 **Package**: `@ourmem/openclaw`
-**Version**: 0.2.0
+**Version**: 0.3.0
 **Runtime**: Node.js
 **Source**: [`plugins/openclaw/`](../plugins/openclaw/)
 
@@ -139,7 +139,7 @@ On session start, recent memories are injected into context. On session end, the
 | Feature | How it works |
 |---------|-------------|
 | 3 hooks | **before_prompt_build** (semantic search using prompt text), **agent_end** (smart-ingest with Claude content block handling), **before_reset** (save user messages before daily reset) |
-| 5 tools | `memory_store`, `memory_search`, `memory_get`, `memory_update`, `memory_delete` (all return structured JSON) |
+| 11 tools | **Memory:** `memory_store`, `memory_search`, `memory_get`, `memory_update`, `memory_delete` · **Sharing:** `space_create`, `space_list`, `space_add_member`, `memory_share`, `memory_pull`, `memory_reshare` |
 | ContextEngine | 7 lifecycle hooks for deep integration with OpenClaw's agent loop |
 | Claude content blocks | Handles Claude's array-of-blocks content format, not just plain strings |
 | Object export | `{id, name, register()}` format for OpenClaw's plugin system |
@@ -187,7 +187,7 @@ openclaw
 ## 4. MCP Server
 
 **Package**: `@ourmem/mcp`
-**Version**: 0.2.0
+**Version**: 0.3.0
 **Runtime**: Node.js (stdio transport)
 **Source**: [`plugins/mcp/`](../plugins/mcp/)
 
@@ -195,7 +195,7 @@ openclaw
 
 | Feature | Details |
 |---------|---------|
-| 9 tools | `memory_store`, `memory_search`, `memory_list`, `memory_ingest`, `memory_get`, `memory_update`, `memory_forget`, `memory_stats`, `memory_profile` |
+| 15 tools | **Memory:** `memory_store`, `memory_search`, `memory_list`, `memory_ingest`, `memory_get`, `memory_update`, `memory_forget`, `memory_stats`, `memory_profile` · **Sharing:** `space_create`, `space_list`, `space_add_member`, `memory_share`, `memory_pull`, `memory_reshare` |
 | 1 resource | `omem://profile` (synthesized user profile) |
 | Standard MCP | Works with Cursor, VS Code Copilot, Claude Desktop, Windsurf, and any MCP-compatible client |
 
@@ -235,7 +235,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
   OMEM_API_KEY=YOUR_API_KEY \
   npx -y @ourmem/mcp
 
-# Should return list of 9 tools
+# Should return list of 15 tools
 ```
 
 In your MCP client, you should see the ourmem tools available in the tools panel.

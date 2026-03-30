@@ -7,9 +7,10 @@
 3. [Ingestion Pipeline](#3-ingestion-pipeline)
 4. [Retrieval Pipeline](#4-retrieval-pipeline)
 5. [Memory Lifecycle](#5-memory-lifecycle)
-6. [User Profile](#6-user-profile)
-7. [Multi-Tenant Isolation](#7-multi-tenant-isolation)
-8. [Cross-Platform Plugin Strategy](#8-cross-platform-plugin-strategy)
+6. [Sharing Architecture](#6-sharing-architecture)
+7. [User Profile](#7-user-profile)
+8. [Multi-Tenant Isolation](#8-multi-tenant-isolation)
+9. [Cross-Platform Plugin Strategy](#9-cross-platform-plugin-strategy)
 
 ---
 
@@ -112,18 +113,30 @@ omem uses [LanceDB](https://lancedb.com/) as an embedded vector database. LanceD
 | `tier` | String | core / working / peripheral |
 | `importance` | Float32 | 0.0–1.0 importance score |
 | `confidence` | Float32 | 0.0–1.0 confidence score |
-| `access_count` | UInt32 | Number of times retrieved |
-| `tags` | List[String] | User/system tags |
+| `access_count` | Int32 | Number of times retrieved |
+| `tags` | String | JSON-serialized array of tags |
 | `scope` | String | Scope filter (default: "global") |
 | `tenant_id` | String | Tenant isolation key |
 | `agent_id` | String? | Optional agent isolation |
 | `session_id` | String? | Session grouping |
 | `source` | String? | Origin (e.g., "github:owner/repo") |
 | `vector` | FixedSizeList[Float32, 1024] | Embedding vector |
+| `relations` | String | JSON-serialized array of MemoryRelation |
+| `superseded_by` | String? | ID of superseding memory |
+| `invalidated_at` | String? | ISO 8601 timestamp |
 | `created_at` | String | ISO 8601 timestamp |
 | `updated_at` | String | ISO 8601 timestamp |
+| `last_accessed_at` | String? | ISO 8601 timestamp |
+| `space_id` | String | Space the memory belongs to |
+| `visibility` | String | "global" or "private" |
+| `owner_agent_id` | String | Agent that created this memory |
+| `provenance` | String? | JSON-serialized Provenance struct (sharing lineage) |
+| `version` | UInt64? | Version counter, incremented on update |
+| `provenance_source_id` | String? | Denormalized source memory ID for fast lookup |
 
 **sessions** — Raw conversation messages (fast path)
+
+> **Note:** The sessions table was part of the original fast-path design. In the current implementation, the fast path writes directly to the memories table. This section is retained for architectural reference.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -355,7 +368,39 @@ The `AutoForgetter` handles:
 
 ---
 
-## 6. User Profile
+## 6. Sharing Architecture
+
+omem's sharing model enables knowledge flow across agents, users, and teams through a three-tier Space hierarchy.
+
+### Space Model
+
+| Type | Scope | Default |
+|------|-------|---------|
+| **Personal** | One user, multiple agents | Auto-created for every tenant (`personal/{tenant_id}`) |
+| **Team** | Multiple users | Created explicitly, shared project knowledge |
+| **Organization** | Company-wide | Created via `org/setup`, read-only for most members |
+
+### Physical Copy + Provenance
+
+Sharing creates a **physical copy** in the target space (not a reference). Each copy carries a `Provenance` struct tracking:
+- `source_memory_id` — original memory ID
+- `source_space_id` — where it came from
+- `shared_by` — who shared it
+- `shared_at` — when it was shared
+
+### Version-Based Staleness Detection
+
+Memories track a `version` counter (auto-incremented on update). Shared copies record the source version at share time. Query with `?check_stale=true` to detect outdated copies; use `POST /v1/memories/{id}/reshare` to refresh them.
+
+### Cross-Space Search
+
+When searching, omem queries all accessible spaces in parallel using `tokio::JoinSet`. Results are weighted by space type (Personal=1.0, Team=0.8, Organization=0.6) and merged via RRF fusion.
+
+> For full details on sharing flows, auto-share rules, and convenience APIs, see [docs/SHARING.md](SHARING.md).
+
+---
+
+## 7. User Profile
 
 The User Profile provides a fast (<100ms) summary of what's known about the user.
 
@@ -388,7 +433,7 @@ The `ProfileService` aggregates the profile by:
 
 ---
 
-## 7. Multi-Tenant Isolation
+## 8. Multi-Tenant Isolation
 
 ### Authentication Flow
 
@@ -417,7 +462,7 @@ Optional `X-Agent-Id` header enables multi-agent isolation within a tenant. When
 
 ---
 
-## 8. Cross-Platform Plugin Strategy
+## 9. Cross-Platform Plugin Strategy
 
 ### Design Principles
 
@@ -431,10 +476,10 @@ Optional `X-Agent-Id` header enables multi-agent isolation within a tenant. When
 | Feature | OpenCode | Claude Code | OpenClaw | MCP |
 |---------|----------|-------------|----------|-----|
 | **Language** | TypeScript | Bash | TypeScript | TypeScript |
-| **Runtime** | Bun | Shell | Node | Bun (stdio) |
+| **Runtime** | Bun | Shell | Node | Node (stdio) |
 | **Auto-recall** | `system.transform` hook | `SessionStart` hook | `before_prompt_build` | On-demand |
 | **Auto-capture** | `session.idle` event | `Stop` hook | `agent_end` event | On-demand |
-| **Tools** | 5 (store/search/get/update/delete) | 2 skills (store/recall) | 5 (store/search/get/update/delete) | 4 tools + 1 resource |
+| **Tools** | 11 (5 memory + 6 sharing) | 2 skills (store/recall) | 11 (5 memory + 6 sharing) | 15 tools + 1 resource (9 memory + 6 sharing) |
 | **Privacy filter** | Yes (`<private>` tags) | No | No | No |
 | **Keyword detection** | Yes (CN + EN) | No | No | No |
 | **Context engine** | No | No | Yes (7 lifecycle methods) | No |
@@ -467,7 +512,7 @@ All plugins share the same HTTP client pattern:
 class OmemClient {
   constructor(baseUrl: string, apiKey: string)
 
-  // Core operations
+  // Core memory operations
   async ingestMessages(messages, mode, sessionId): Promise<IngestResponse>
   async searchMemories(query, limit): Promise<SearchResult[]>
   async storeMemory(content, tags): Promise<Memory>
@@ -475,5 +520,13 @@ class OmemClient {
   async updateMemory(id, updates): Promise<Memory>
   async deleteMemory(id): Promise<void>
   async getProfile(): Promise<UserProfile>
+
+  // Sharing operations
+  async createSpace(name, type, members?): Promise<Space>
+  async listSpaces(): Promise<Space[]>
+  async addSpaceMember(spaceId, userId, role): Promise<void>
+  async shareMemory(memoryId, targetSpace): Promise<SharedCopy>
+  async pullMemory(memoryId, sourceSpace): Promise<Memory>
+  async reshareMemory(memoryId, targetSpace?): Promise<SharedCopy>
 }
 ```

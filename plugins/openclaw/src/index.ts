@@ -11,6 +11,12 @@ const toolNames = [
   "memory_get",
   "memory_update",
   "memory_delete",
+  "space_create",
+  "space_list",
+  "space_add_member",
+  "memory_share",
+  "memory_pull",
+  "memory_reshare",
 ];
 
 export default {

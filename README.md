@@ -49,7 +49,7 @@ Install the plugin for your platform. Memory works automatically — your agent 
 
 ### 🔧 I'm building AI products
 
-REST API with 35 endpoints. Docker one-liner for self-deploy. Embed persistent memory into your own agents and workflows.
+REST API with 48+ endpoints. Docker one-liner for self-deploy. Embed persistent memory into your own agents and workflows.
 
 **→ Jump to [Self-Deploy](#self-deploy)**
 
@@ -81,6 +81,8 @@ Weibull decay model manages the memory lifecycle — core memories persist, peri
 </table>
 
 📖 **[Memory Pipeline Architecture](docs/PIPELINE.md)** — Technical deep-dive into how ourmem stores, retrieves, and evolves memories.
+
+🔗 **[Memory Sharing Architecture](docs/SHARING.md)** — How memories flow across agents and teams: sharing, provenance, versioning, and cross-space search.
 
 ## Feature Overview
 
@@ -141,18 +143,48 @@ Most AI memory systems trap knowledge in silos. ourmem's three-tier Space archit
 ## How It Works
 
 ```
-Your AI Agent (OpenCode / Claude Code / OpenClaw / Cursor)
-        ↓ auto-recall + auto-capture
-   ourmem Plugin (thin HTTP client)
-        ↓ REST API (X-API-Key auth)
-   ourmem Server
-        │
-        ├── Smart Ingest ─── LLM extraction → noise filter → admission → 7-decision reconciliation
-        ├── Hybrid Search ── vector + BM25 → RRF fusion → reranker → decay boost → MMR (11 stages)
-        ├── User Profile ─── static facts + dynamic context, <100ms
-        ├── Space Sharing ── Personal / Team / Organization with provenance tracking
-        └── Lifecycle ────── Weibull decay, 3-tier promotion (Core/Working/Peripheral), auto-forgetting
+┌──────────────────────────────────────────────────────────────────┐
+│   Your AI Agent (OpenCode / Claude Code / OpenClaw / Cursor)     │
+│                                                                  │
+│   Session Start → auto-recall relevant memories                  │
+│   During Work   → keyword detection triggers recall              │
+│   Session End   → auto-capture decisions, preferences, facts     │
+└───────────────────────────┬──────────────────────────────────────┘
+                            │ REST API (X-API-Key)
+                            ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                       ourmem Server                              │
+│                                                                  │
+│  ┌─ Smart Ingest ─────────────────────────────────────────────┐  │
+│  │  Messages → LLM extraction → noise filter → admission      │  │
+│  │  → 7-decision reconciliation (CREATE / MERGE / SUPERSEDE / │  │
+│  │    SUPPORT / CONTEXTUALIZE / CONTRADICT / SKIP)            │  │
+│  │  → cross-reconcile relations → privacy redaction           │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌─ Hybrid Search (11 stages) ────────────────────────────────┐  │
+│  │  Vector + BM25 → RRF fusion → cross-encoder reranker       │  │
+│  │  → Weibull decay boost → importance scoring                │  │
+│  │  → MMR diversity → parallel cross-space aggregation        │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌─ Sharing Engine ───────────────────────────────────────────┐  │
+│  │  Personal / Team / Organization spaces                     │  │
+│  │  → provenance tracking → version-based stale detection     │  │
+│  │  → auto-share rules → one-step share-to-user              │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌─ Lifecycle ────────────────────────────────────────────────┐  │
+│  │  Weibull decay (Core β=0.8 / Working β=1.0 / Peripheral   │  │
+│  │  β=1.3) → 3-tier promotion → auto-forgetting TTL          │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
 ```
+
+- **Write once, recall everywhere** — memories persist across sessions, devices, and agents
+- **Gets smarter over time** — reconciliation merges, updates, and contradicts memories automatically
+- **Share across boundaries** — Personal → Team → Organization knowledge flow with full provenance
+- **No manual memory management** — Weibull decay handles lifecycle, auto-share rules handle distribution
 
 ## Quick Start
 
@@ -245,18 +277,41 @@ curl -s "$OMEM_API_URL/v1/memories/search?q=dark+mode" -H "X-API-Key: $OMEM_API_
 
 ## What Your Agent Gets
 
+### Memory Tools
+
 | Tool | Purpose |
 |------|---------|
-| `memory_store` | Save facts, decisions, preferences |
-| `memory_search` | Semantic + keyword hybrid search |
-| `memory_get` | Retrieve by ID |
-| `memory_update` | Modify existing memory |
+| `memory_store` | Save facts, decisions, preferences with smart dedup |
+| `memory_search` | 11-stage hybrid search (vector + BM25 + reranker) |
+| `memory_get` | Retrieve a specific memory by ID |
+| `memory_update` | Modify content, tags, importance, tier |
 | `memory_delete` | Remove a memory |
+| `memory_list` | Browse memories with filters and pagination |
+| `memory_ingest` | Smart-ingest full conversations (LLM extraction) |
+| `memory_profile` | Auto-generated user profile (static facts + dynamic context) |
+| `memory_stats` | Analytics: tag distribution, decay curves, relation graphs |
 
-| Hook | Trigger | Effect |
-|------|---------|--------|
-| SessionStart | New session | Recent memories auto-injected into context |
-| SessionEnd | Session ends | Key information auto-captured |
+### Sharing Tools
+
+| Tool | Purpose |
+|------|---------|
+| `space_create` | Create Team or Organization spaces |
+| `space_list` | List all accessible spaces |
+| `space_add_member` | Invite users to a shared space |
+| `memory_share` | Share a memory to any space with provenance |
+| `memory_pull` | Pull a shared memory into your personal space |
+| `memory_reshare` | Refresh stale shared copies with latest content |
+
+> **Convenience APIs:** `share-to-user` (one-step cross-user share with auto-bridging) and `share-all-to-user` (bulk share). MCP exposes 15 tools + 1 resource. OpenCode/OpenClaw expose 11 tools + 3 hooks.
+
+### Smart Hooks
+
+| Hook | Trigger | What Happens |
+|------|---------|--------------|
+| **SessionStart** | New session begins | Recent memories + user profile auto-injected into context |
+| **KeywordRecall** | Keyword detected mid-session | Relevant memories surfaced without explicit search |
+| **SessionEnd** | Session ends | Key decisions, preferences, and facts auto-captured |
+| **Compaction** | Context window compressed | Critical memories preserved across compaction boundaries |
 
 ## Memory Space
 
@@ -374,7 +429,7 @@ ssh user@server "gunzip /opt/omem-server.gz && chmod +x /opt/omem-server && /opt
 | POST | `/v1/files` | Upload PDF / image / video / code |
 | GET | `/v1/stats` | Analytics & insights |
 
-Full API reference (35 endpoints): [docs/API.md](docs/API.md)
+Full API reference (48+ endpoints): [docs/API.md](docs/API.md)
 
 ## Documentation
 

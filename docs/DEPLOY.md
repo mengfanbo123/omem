@@ -425,7 +425,7 @@ OMEM_LLM_MODEL=qwen-plus
 | `OSS_ACCESS_KEY_ID` | _(none)_ | OSS access key (not needed with ECS RAM role) |
 | `OSS_ACCESS_KEY_SECRET` | _(none)_ | OSS secret key (not needed with ECS RAM role) |
 | `OSS_SECURITY_TOKEN` | _(none)_ | STS security token (set by wrapper script for RAM role) |
-| `OMEM_S3_BUCKET` | `omem-data` | S3 bucket name for LanceDB storage. Enables `s3://` storage scheme |
+| `OMEM_S3_BUCKET` | _(empty)_ | S3 bucket name for LanceDB storage. Empty = local disk (`./omem-data/`). Enables `s3://` storage scheme |
 | `AWS_ENDPOINT_URL` | _(none)_ | Custom S3 endpoint (for MinIO: `http://minio:9000`) |
 | `AWS_ACCESS_KEY_ID` | _(none)_ | AWS access key (not needed with IAM roles) |
 | `AWS_SECRET_ACCESS_KEY` | _(none)_ | AWS secret key (not needed with IAM roles) |
