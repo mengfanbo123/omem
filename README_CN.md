@@ -297,7 +297,7 @@ curl -sX POST http://localhost:8080/v1/tenants \
 
 **Claude Code:** `/plugin marketplace add ourmem/omem` + 在 `~/.claude/settings.json` 设环境变量。
 
-**OpenClaw:** `openclaw plugins install @ourmem/openclaw` + 配置 `openclaw.json` 中的 apiUrl 和 apiKey。
+**OpenClaw:** `openclaw plugins install @ourmem/ourmem` + 配置 `openclaw.json` 中的 apiUrl 和 apiKey。
 
 **MCP (Cursor / VS Code / Claude Desktop):**
 

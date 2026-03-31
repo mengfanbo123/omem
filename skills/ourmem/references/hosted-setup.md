@@ -84,9 +84,9 @@ MIRROR_TIME="$(curl -o /dev/null -sS --connect-timeout 2 --max-time 6 -w '%{time
 
 if [ "$MIRROR_TIME" != "timeout" ] && { [ "$NPMJS_TIME" = "timeout" ] || awk "BEGIN { exit !($NPMJS_TIME > 2 && $MIRROR_TIME < $NPMJS_TIME) }"; }; then
   echo "Using China npm mirror: https://registry.npmmirror.com"
-  NPM_CONFIG_REGISTRY=https://registry.npmmirror.com openclaw plugins install @ourmem/openclaw
+  NPM_CONFIG_REGISTRY=https://registry.npmmirror.com openclaw plugins install @ourmem/ourmem
 else
-  openclaw plugins install @ourmem/openclaw
+  openclaw plugins install @ourmem/ourmem
 fi
 ```
 

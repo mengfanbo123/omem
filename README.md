@@ -297,7 +297,7 @@ Save the returned `api_key` — this reconnects you to the same memory from any 
 
 **Claude Code:** `/plugin marketplace add ourmem/omem` + set env vars in `~/.claude/settings.json`.
 
-**OpenClaw:** `openclaw plugins install @ourmem/openclaw` + configure `openclaw.json` with apiUrl and apiKey.
+**OpenClaw:** `openclaw plugins install @ourmem/ourmem` + configure `openclaw.json` with apiUrl and apiKey.
 
 **MCP (Cursor / VS Code / Claude Desktop):**
 

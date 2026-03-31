@@ -129,7 +129,7 @@ On session start, recent memories are injected into context. On session end, the
 
 ## 3. OpenClaw
 
-**Package**: `@ourmem/openclaw`
+**Package**: `@ourmem/ourmem`
 **Version**: 0.3.0
 **Runtime**: Node.js
 **Source**: [`plugins/openclaw/`](../plugins/openclaw/)
@@ -149,7 +149,7 @@ On session start, recent memories are injected into context. On session end, the
 **Step 1**: Install the plugin:
 
 ```bash
-openclaw plugins install @ourmem/openclaw
+openclaw plugins install @ourmem/ourmem
 ```
 
 **Step 2**: Configure in `openclaw.json`:

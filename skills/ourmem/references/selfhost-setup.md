@@ -196,10 +196,10 @@ export OMEM_API_KEY="YOUR_API_KEY"
 `[AGENT]` Detect npm registry reachability first (same as hosted setup). Then install:
 
 ```bash
-openclaw plugins install @ourmem/openclaw
+openclaw plugins install @ourmem/ourmem
 
 # For China/Alibaba Cloud networks:
-NPM_CONFIG_REGISTRY=https://registry.npmmirror.com openclaw plugins install @ourmem/openclaw
+NPM_CONFIG_REGISTRY=https://registry.npmmirror.com openclaw plugins install @ourmem/ourmem
 ```
 
 Configure `openclaw.json`:

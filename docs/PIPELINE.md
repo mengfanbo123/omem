@@ -568,9 +568,9 @@ These tags are attached to all store and search operations.
 
 **Note:** OpenCode has no session-end hook. Memory storage relies on the agent proactively using the `memory_store` tool, or keyword detection nudging the agent to do so.
 
-### 3.3 OpenClaw Plugin (`@ourmem/openclaw`)
+### 3.3 OpenClaw Plugin (`@ourmem/ourmem`)
 
-**Installation:** `openclaw plugins install @ourmem/openclaw`
+**Installation:** `openclaw plugins install @ourmem/ourmem`
 
 **Architecture:** Object export `{id, name, register()}`. The `register()` method registers hooks via `api.on()` and tools via `api.registerTool()`. Also provides a `ContextEngine` class and `MemoryBackend` class for framework-level integration.
 
