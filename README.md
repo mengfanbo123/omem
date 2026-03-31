@@ -120,7 +120,7 @@ Weibull decay model manages the memory lifecycle — core memories persist, peri
 | **Deploy** | Open source | Apache-2.0 |
 | | Self-hostable | Single binary, Docker one-liner, ~$5/month |
 | | musl static build | Zero-dependency binary for any Linux x86_64 |
-| | Object storage | Alibaba Cloud OSS or S3-compatible, with ECS RAM role support |
+| | Object storage | AWS S3 or any S3-compatible storage, with IAM role support |
 | | Hosted option | ourmem.ai — nothing to deploy |
 
 ## From Isolated Agents to Collective Intelligence
@@ -404,22 +404,22 @@ Full deployment guide: [docs/DEPLOY.md](docs/DEPLOY.md)
 
 ### Object Storage (Optional)
 
-By default ourmem stores data on local disk. For durability and scalability, configure Alibaba Cloud OSS or any S3-compatible object storage:
+By default ourmem stores data on local disk. For durability and scalability, configure AWS S3 or any S3-compatible object storage:
 
 ```bash
 # Add to your environment
-OMEM_OSS_BUCKET=your-bucket           # enables oss:// scheme (recommended for Alibaba Cloud)
-OSS_ENDPOINT=https://oss-xx-internal.aliyuncs.com
-OSS_ACCESS_KEY_ID=your-ak             # or use ECS RAM role (auto-discovered)
-OSS_ACCESS_KEY_SECRET=your-sk
-
-# Alternative: S3-compatible storage
 OMEM_S3_BUCKET=your-bucket            # enables s3:// scheme
 AWS_ENDPOINT_URL=https://s3.amazonaws.com
 AWS_REGION=us-east-1
+
+# Alternative: OSS-compatible storage
+OMEM_OSS_BUCKET=your-bucket           # enables oss:// scheme
+OSS_ENDPOINT=https://oss-xx-internal.aliyuncs.com
+OSS_ACCESS_KEY_ID=your-ak             # or use ECS RAM role (auto-discovered)
+OSS_ACCESS_KEY_SECRET=your-sk
 ```
 
-> OSS takes priority over S3. If both `OMEM_OSS_BUCKET` and `OMEM_S3_BUCKET` are set, OSS is used.
+> If both `OMEM_S3_BUCKET` and `OMEM_OSS_BUCKET` are set, OSS takes priority.
 
 ## Build from Source
 
