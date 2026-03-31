@@ -33,3 +33,4 @@ __pycache__/
 # === 本地部署文档（含敏感信息，不公开）===
 AGENTS.md
 docs/AGENTS.md
+*.png
