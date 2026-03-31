@@ -29,3 +29,7 @@ __pycache__/
 # === 工作状态 ===
 .sisyphus/
 .mcp.json
+
+# === 本地部署文档（含敏感信息，不公开）===
+AGENTS.md
+docs/AGENTS.md
