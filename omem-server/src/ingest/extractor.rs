@@ -119,7 +119,7 @@ impl FactExtractor {
 }
 
 fn calculate_quality_score(text: &str) -> f32 {
-    let mut score = 0.5;
+    let mut score: f32 = 0.5;
     let len = text.len();
 
     if len > 50 {
