@@ -1,4 +1,4 @@
-import type { Model, UserMessage, Part } from "@opencode-ai/sdk";
+import type { Model, UserMessage, Part, OpencodeClient } from "@opencode-ai/sdk";
 import type { OmemClient, SearchResult } from "./client.js";
 import { detectKeyword, KEYWORD_NUDGE } from "./keywords.js";
 
@@ -142,6 +142,57 @@ export function compactingHook(client: OmemClient, containerTags: string[]) {
       if (block) {
         output.context.push(block);
       }
+    } catch {
+      // intentionally silent
+    }
+  };
+}
+
+export function sessionEndHook(
+  client: OpencodeClient,
+  omemClient: OmemClient,
+  containerTags: string[],
+) {
+  return async (input: any) => {
+    const event = input?.event;
+    if (!event || event.type !== "session.deleted") return;
+
+    const { sessionID, info } = event.properties;
+    const directory = info.directory || "";
+
+    try {
+      const msgResp = await (client as any).session?.messages({ sessionID, limit: 100 });
+      if (!msgResp?.ok) return;
+      const messages: Array<{
+        info: { role: string; [key: string]: any };
+        parts: Array<{ type: string; text?: string; ignored?: boolean; synthetic?: boolean; [key: string]: any }>;
+      }> = msgResp.data ?? [];
+
+      const chatMessages: Array<{ role: string; content: string }> = [];
+      for (const msg of messages) {
+        const role = msg.info.role === "user" ? "user" : "assistant";
+        const texts: string[] = [];
+        for (const part of msg.parts ?? []) {
+          if (part.type === "text" && !part.ignored && !part.synthetic && part.text) {
+            texts.push(part.text);
+          }
+        }
+        if (texts.length > 0) {
+          chatMessages.push({ role, content: texts.join("\n") });
+        }
+      }
+
+      if (chatMessages.length === 0) return;
+
+      const wasCompacted = !!(info.time?.compacting);
+      const tags = wasCompacted ? [...containerTags, "session:compacted"] : containerTags;
+
+      await omemClient.ingestMessages(chatMessages, {
+        mode: "smart",
+        sessionId: sessionID,
+        entityContext: directory,
+        tags,
+      });
     } catch {
       // intentionally silent
     }
