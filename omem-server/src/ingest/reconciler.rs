@@ -503,6 +503,7 @@ impl Reconciler {
         mem.l1_overview = fact.l1_overview.clone();
         mem.l2_content = fact.l2_content.clone();
         mem.tags = fact.tags.clone();
+        mem.confidence = fact.quality_score.clamp(0.1, 1.0);
 
         let embeddings = self.embed.embed(std::slice::from_ref(&source.to_string())).await?;
         let vector = embeddings.first().map(|v| v.as_slice());
@@ -1063,3 +1064,4 @@ mod tests {
         assert!(old.superseded_by.is_none());
     }
 }
+

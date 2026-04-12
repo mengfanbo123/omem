@@ -9,6 +9,10 @@ pub struct ExtractedFact {
     pub tags: Vec<String>,
     #[serde(skip)]
     pub source_text: Option<String>,
+    /// Content quality score computed from structural features (0.0-1.0).
+    /// Used to set initial memory confidence on creation.
+    #[serde(default)]
+    pub quality_score: f32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
