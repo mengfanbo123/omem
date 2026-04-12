@@ -3,11 +3,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { OmemClient } from "./client.js";
-import { autoRecallHook, compactingHook, keywordDetectionHook } from "./hooks.js";
+import { autoRecallHook, compactingHook, keywordDetectionHook, sessionEndHook } from "./hooks.js";
 import { getUserTag, getProjectTag } from "./tags.js";
 import { buildTools } from "./tools.js";
 
-const OmemPlugin: Plugin = async ({ directory }) => {
+const OmemPlugin: Plugin = async ({ directory, client }) => {
   // Config priority: opencode.json plugin_config > ~/.config/ourmem/config.json > env > default
   let apiUrl = "https://api.ourmem.ai";
   let apiKey = "";
@@ -47,6 +47,7 @@ const OmemPlugin: Plugin = async ({ directory }) => {
         output.env.OMEM_PROJECT_DIR = directory;
       }
     },
+    event: sessionEndHook(client, omemClient, containerTags),
   };
 };
 
