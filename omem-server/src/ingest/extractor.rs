@@ -4,7 +4,7 @@ use regex::Regex;
 
 use crate::domain::error::OmemError;
 use crate::ingest::prompts;
-use crate::ingest::types::{ExtractionResult, ExtractedFact, IngestMessage};
+use crate::ingest::types::{ExtractedFact, ExtractionResult, IngestMessage};
 use crate::llm::{complete_json, LlmService};
 
 const DEFAULT_MAX_FACTS: usize = 50;
@@ -138,20 +138,32 @@ fn calculate_quality_score(text: &str) -> f32 {
     if Regex::new(r"\d{1,2}[年日月周]").unwrap().is_match(text) {
         score += 0.05;
     }
-    if Regex::new(r"\d+\.[0-9]+|[0-9]+%|[0-9]+[ξ元美元]").unwrap().is_match(text) {
+    if Regex::new(r"\d+\.[0-9]+|[0-9]+%|[0-9]+[ξ元美元]")
+        .unwrap()
+        .is_match(text)
+    {
         score += 0.05;
     }
 
-    if Regex::new(r"因此|所以|结论是|决定是|方案是|由于|因为").unwrap().is_match(text) {
+    if Regex::new(r"因此|所以|结论是|决定是|方案是|由于|因为")
+        .unwrap()
+        .is_match(text)
+    {
         score += 0.1;
     }
-    if Regex::new(r"[。！？]\s*[^。！？]{30,}").unwrap().is_match(text) {
+    if Regex::new(r"[。！？]\s*[^。！？]{30,}")
+        .unwrap()
+        .is_match(text)
+    {
         score += 0.05;
     }
     if Regex::new(r"(?m)^\s*[-*#]\s+\S").unwrap().is_match(text) {
         score += 0.05;
     }
-    if Regex::new(r"[A-Z][a-z]+[A-Z]|[A-Z]{2,}").unwrap().is_match(text) {
+    if Regex::new(r"[A-Z][a-z]+[A-Z]|[A-Z]{2,}")
+        .unwrap()
+        .is_match(text)
+    {
         score += 0.05;
     }
 
@@ -168,20 +180,16 @@ fn normalize_category(raw: &str) -> String {
 }
 
 pub fn strip_envelope_metadata(text: &str) -> String {
-    let system_channel =
-        Regex::new(r"(?m)^(?:\w+:\s*)?System:\s*\[.*?\]\s*Channel.*$")
-            .expect("valid regex: system_channel");
+    let system_channel = Regex::new(r"(?m)^(?:\w+:\s*)?System:\s*\[.*?\]\s*Channel.*$")
+        .expect("valid regex: system_channel");
     let result = system_channel.replace_all(text, "");
 
-    let conv_info = Regex::new(
-        r"(?ms)Conversation info \(untrusted metadata\):\s*\{.*?\}",
-    )
-    .expect("valid regex: conv_info");
+    let conv_info = Regex::new(r"(?ms)Conversation info \(untrusted metadata\):\s*\{.*?\}")
+        .expect("valid regex: conv_info");
     let result = conv_info.replace_all(&result, "");
 
-    let sender_info =
-        Regex::new(r"(?ms)Sender \(untrusted metadata\):\s*\{.*?\}")
-            .expect("valid regex: sender_info");
+    let sender_info = Regex::new(r"(?ms)Sender \(untrusted metadata\):\s*\{.*?\}")
+        .expect("valid regex: sender_info");
     let result = sender_info.replace_all(&result, "");
 
     result.into_owned()
@@ -194,7 +202,8 @@ mod tests {
     #[test]
     fn quality_score_length_bonus() {
         let short = "User likes cats";
-        let medium = "User prefers Rust over C++ for systems programming due to memory safety features";
+        let medium =
+            "User prefers Rust over C++ for systems programming due to memory safety features";
         let long = "User deployed v2.0 to production last Friday and fixed a critical bug in the payment pipeline that caused duplicate charges for users in the EU region";
 
         let s = calculate_quality_score(short);

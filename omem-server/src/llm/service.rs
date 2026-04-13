@@ -33,7 +33,7 @@ pub fn strip_markdown_fences(s: &str) -> String {
 /// Strips `<think>...</think>` and `<think>...` tags from LLM output.
 fn strip_thinking_tags(s: &str) -> String {
     let mut result = s.to_string();
-    
+
     // Handle standard thinking tags: <think>...</think>
     // Use a loop to handle multiple occurrences
     while let Some(start) = result.find("<think>") {
@@ -47,7 +47,7 @@ fn strip_thinking_tags(s: &str) -> String {
             break;
         }
     }
-    
+
     result
 }
 

@@ -145,7 +145,9 @@ mod tests {
             embed_base_url: String::new(),
             ..OmemConfig::default()
         };
-        let err = OpenAICompatEmbedder::new(&config).err().expect("should fail");
+        let err = OpenAICompatEmbedder::new(&config)
+            .err()
+            .expect("should fail");
         assert!(err.to_string().contains("embed_base_url is required"));
     }
 

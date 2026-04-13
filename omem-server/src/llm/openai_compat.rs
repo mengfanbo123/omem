@@ -82,9 +82,10 @@ impl OpenAICompatLlm {
             client,
             url: format!("{base_url}/v1/chat/completions"),
             model: config.llm_model.clone(),
-            response_format: config.llm_response_format.clone().map(|t| ResponseFormat {
-                format_type: t,
-            }),
+            response_format: config
+                .llm_response_format
+                .clone()
+                .map(|t| ResponseFormat { format_type: t }),
         })
     }
 
@@ -135,9 +136,7 @@ impl LlmService for OpenAICompatLlm {
 
             if !status.is_success() {
                 let body = resp.text().await.unwrap_or_default();
-                return Err(OmemError::Llm(format!(
-                    "LLM API returned {status}: {body}"
-                )));
+                return Err(OmemError::Llm(format!("LLM API returned {status}: {body}")));
             }
 
             let body: ChatResponse = resp

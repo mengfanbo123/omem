@@ -9,8 +9,8 @@ use omem_server::llm::{create_llm_service, LlmService};
 use omem_server::store::{SpaceStore, StoreManager, TenantStore};
 
 fn init_tracing(config: &OmemConfig) {
-    let filter = EnvFilter::try_from_env("RUST_LOG")
-        .unwrap_or_else(|_| EnvFilter::new(&config.log_level));
+    let filter =
+        EnvFilter::try_from_env("RUST_LOG").unwrap_or_else(|_| EnvFilter::new(&config.log_level));
 
     fmt()
         .json()
@@ -44,14 +44,20 @@ async fn main() {
             .await
             .expect("failed to create TenantStore"),
     );
-    tenant_store.init_table().await.expect("failed to init tenants table");
+    tenant_store
+        .init_table()
+        .await
+        .expect("failed to init tenants table");
 
     let space_store = Arc::new(
         SpaceStore::new(&system_uri)
             .await
             .expect("failed to create SpaceStore"),
     );
-    space_store.init_tables().await.expect("failed to init spaces tables");
+    space_store
+        .init_tables()
+        .await
+        .expect("failed to init spaces tables");
 
     let embed: Arc<dyn EmbedService> = Arc::from(
         create_embed_service(&config)
