@@ -5,25 +5,49 @@ pub trait LlmService: Send + Sync {
     async fn complete_text(&self, system: &str, user: &str) -> Result<String, OmemError>;
 }
 
-/// Strips ` ```json\n...\n``` ` and ` ```\n...\n``` ` fences from LLM output.
+/// Strips thinking tags (`<think>` and `</think>`) and markdown fences from LLM output.
 pub fn strip_markdown_fences(s: &str) -> &str {
     let trimmed = s.trim();
 
-    if let Some(rest) = trimmed.strip_prefix("```json") {
+    // Step 1: Strip thinking tags first (for reasoning models like MiniMax-M2.7)
+    // Handle both standard and multiline thinking tags
+    let without_thinking = strip_thinking_tags(trimmed);
+
+    // Step 2: Strip markdown fences
+    if let Some(rest) = without_thinking.strip_prefix("```json") {
         let rest = rest.strip_prefix('\n').unwrap_or(rest);
         if let Some(inner) = rest.strip_suffix("```") {
             return inner.trim();
         }
     }
 
-    if let Some(rest) = trimmed.strip_prefix("```") {
+    if let Some(rest) = without_thinking.strip_prefix("```") {
         let rest = rest.strip_prefix('\n').unwrap_or(rest);
         if let Some(inner) = rest.strip_suffix("```") {
             return inner.trim();
         }
     }
 
-    trimmed
+    without_thinking.trim()
+}
+
+/// Strips `<think>...</think>` and `<think>...` tags from LLM output.
+fn strip_thinking_tags(s: &str) -> &str {
+    // Handle standard thinking tags: <think>...</think>
+    if let Some(start) = s.find("<think>") {
+        if let Some(end) = s.find("</think>") {
+            let before = &s[..start];
+            let after = &s[end + "</think>".len()..];
+            return strip_thinking_tags(format!("{before}{after}").as_str());
+        }
+    }
+    // Handle unclosed thinking tag (defensive)
+    if let Some(start) = s.find("<think>") {
+        let before = &s[..start];
+        let after = &s[start + "<think>".len()..];
+        return strip_thinking_tags(format!("{before}{after}").as_str());
+    }
+    s
 }
 
 /// Complete a prompt and parse the response as typed JSON.
@@ -97,5 +121,46 @@ mod tests {
         assert!(result.starts_with('{'));
         assert!(result.ends_with('}'));
         assert!(result.contains("\"items\""));
+    }
+
+    #[test]
+    fn strip_thinking_tags() {
+        let input = "<think>
+Let me analyze the facts carefully.
+</think>
+{"key": "value"}";
+        assert_eq!(strip_markdown_fences(input), "{\"key\": \"value\"}");
+    }
+
+    #[test]
+    fn strip_thinking_tags_multiline() {
+        let input = "<think>
+The user is a developer.
+I need to extract facts.
+</think>
+{"memories": [{"l0_abstract": "User is a developer"}]}</think>";
+        assert_eq!(
+            strip_markdown_fences(input),
+            "{\"memories\": [{\"l0_abstract\": \"User is a developer\"}]}"
+        );
+    }
+
+    #[test]
+    fn strip_thinking_tags_no_closer() {
+        let input = "<think>
+This thinking never ends
+{"key": "value"}";
+        assert_eq!(strip_markdown_fences(input), "{\"key\": \"value\"}");
+    }
+
+    #[test]
+    fn strip_thinking_tags_with_json_fence() {
+        let input = "<think>
+Analyzing...
+</think>
+```json
+{"key": "value"}
+```</think>";
+        assert_eq!(strip_markdown_fences(input), "{\"key\": \"value\"}");
     }
 }
