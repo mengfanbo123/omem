@@ -17,6 +17,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - name: Install protoc
+        run: |
+          curl -OL https://github.com/protocolbuffers/protobuf/releases/download/v29.5/protoc-29.5-linux-x86_64.zip
+          sudo unzip protoc-29.5-linux-x86_64.zip -d /usr/local
+          rm protoc-29.5-linux-x86_64.zip
       - uses: Swatinem/rust-cache@v2
       - name: fmt
         run: cargo fmt -- --check
