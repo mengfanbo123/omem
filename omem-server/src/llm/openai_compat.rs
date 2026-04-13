@@ -24,7 +24,7 @@ struct ChatMessage {
     content: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct ResponseFormat {
     #[serde(rename = "type")]
     format_type: String,
