@@ -49,6 +49,7 @@ pub struct OpenAICompatLlm {
     client: reqwest::Client,
     url: String,
     model: String,
+    response_format: Option<ResponseFormat>,
 }
 
 impl OpenAICompatLlm {
@@ -81,6 +82,9 @@ impl OpenAICompatLlm {
             client,
             url: format!("{base_url}/v1/chat/completions"),
             model: config.llm_model.clone(),
+            response_format: config.llm_response_format.clone().map(|t| ResponseFormat {
+                format_type: t,
+            }),
         })
     }
 
@@ -98,9 +102,7 @@ impl OpenAICompatLlm {
                 },
             ],
             temperature: 0.1,
-            response_format: Some(ResponseFormat {
-                format_type: "json_object".to_string(),
-            }),
+            response_format: self.response_format.clone(),
         }
     }
 }
@@ -207,7 +209,7 @@ mod tests {
         assert!((req.temperature - 0.1).abs() < f32::EPSILON);
         assert_eq!(
             req.response_format.as_ref().map(|f| f.format_type.as_str()),
-            Some("json_object")
+            None
         );
     }
 
@@ -221,6 +223,6 @@ mod tests {
         assert_eq!(json["model"], "gpt-4o-mini");
         assert_eq!(json["messages"][0]["role"], "system");
         assert_eq!(json["messages"][1]["content"], "hello");
-        assert_eq!(json["response_format"]["type"], "json_object");
+        assert!(json.get("response_format").is_none());
     }
 }

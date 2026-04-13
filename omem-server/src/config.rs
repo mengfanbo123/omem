@@ -11,6 +11,7 @@ pub struct OmemConfig {
     pub llm_api_key: String,
     pub llm_model: String,
     pub llm_base_url: String,
+    pub llm_response_format: Option<String>,
     pub embed_api_key: String,
     pub embed_base_url: String,
     pub embed_model: String,
@@ -28,6 +29,7 @@ impl Default for OmemConfig {
             llm_api_key: String::new(),
             llm_model: "gpt-4o-mini".to_string(),
             llm_base_url: "https://api.openai.com".to_string(),
+            llm_response_format: None,
             embed_api_key: String::new(),
             embed_base_url: String::new(),
             embed_model: String::new(),
@@ -51,6 +53,9 @@ impl OmemConfig {
             llm_api_key: env::var("OMEM_LLM_API_KEY").unwrap_or(defaults.llm_api_key),
             llm_model: env::var("OMEM_LLM_MODEL").unwrap_or(defaults.llm_model),
             llm_base_url: env::var("OMEM_LLM_BASE_URL").unwrap_or(defaults.llm_base_url),
+            llm_response_format: env::var("OMEM_LLM_RESPONSE_FORMAT")
+                .ok()
+                .filter(|v| !v.is_empty()),
             embed_api_key: env::var("OMEM_EMBED_API_KEY").unwrap_or(defaults.embed_api_key),
             embed_base_url: env::var("OMEM_EMBED_BASE_URL").unwrap_or(defaults.embed_base_url),
             embed_model: env::var("OMEM_EMBED_MODEL").unwrap_or(defaults.embed_model),
@@ -78,6 +83,7 @@ mod tests {
         assert_eq!(config.port, 8080);
         assert_eq!(config.embed_provider, "noop");
         assert_eq!(config.llm_model, "gpt-4o-mini");
+        assert!(config.llm_response_format.is_none());
         assert_eq!(config.log_level, "info");
     }
 }
