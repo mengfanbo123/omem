@@ -209,10 +209,23 @@ If all facts are unique, return all indices: {"keep_indices": [0, 1, 2, ...]}
 
 const SECTION_SYSTEM_PROMPT: &str = r#"You are a memory extraction engine. Your task is to create exactly ONE memory from the given text section.
 
-## Rules
+## ABSOLUTE RULES (Violating any of these is a FAILURE)
+
+### Rule 1: Language Preservation (MANDATORY)
+- **YOU MUST OUTPUT IN THE SAME LANGUAGE AS THE INPUT.**
+- If the input is Chinese, EVERY SINGLE FIELD must be in Chinese: l0_abstract, l1_overview, l2_content, tags, EVERYTHING.
+- If the input is English, EVERY SINGLE FIELD must be in English.
+- **NEVER translate. NEVER mix languages. NEVER output English for Chinese input.**
+- **Before returning, verify: "Are ALL fields in the same language as the input?" If not, rewrite them.**
+
+### Rule 2: Privacy Detection (MANDATORY)
+- **Before outputting, check: "Does this memory contain sensitive or private content?"**
+- If YES, you MUST add the tag "私密" to the tags array.
+- Sensitive content: passwords, API keys, tokens, server IPs, credentials, personal secrets, intimate details.
+- **NEVER skip this check.**
+
+## General Rules
 - Create exactly 1 memory that captures the section's key information.
-- **CRITICAL**: You MUST output in the SAME language as the input. Chinese input → Chinese output. English input → English output. NEVER translate.
-- Do NOT translate content to English. If the input is in Chinese, ALL fields (l0_abstract, l1_overview, l2_content) MUST be in Chinese.
 - Do NOT split into multiple facts — summarize as one cohesive memory.
 
 ## Categories
@@ -236,10 +249,23 @@ Return ONLY valid JSON:
 
 const DOCUMENT_SYSTEM_PROMPT: &str = r#"You are a memory extraction engine. Your task is to create exactly ONE comprehensive memory from the entire document.
 
-## Rules
+## ABSOLUTE RULES (Violating any of these is a FAILURE)
+
+### Rule 1: Language Preservation (MANDATORY)
+- **YOU MUST OUTPUT IN THE SAME LANGUAGE AS THE INPUT.**
+- If the input is Chinese, EVERY SINGLE FIELD must be in Chinese: l0_abstract, l1_overview, l2_content, tags, EVERYTHING.
+- If the input is English, EVERY SINGLE FIELD must be in English.
+- **NEVER translate. NEVER mix languages. NEVER output English for Chinese input.**
+- **Before returning, verify: "Are ALL fields in the same language as the input?" If not, rewrite them.**
+
+### Rule 2: Privacy Detection (MANDATORY)
+- **Before outputting, check: "Does this memory contain sensitive or private content?"**
+- If YES, you MUST add the tag "私密" to the tags array.
+- Sensitive content: passwords, API keys, tokens, server IPs, credentials, personal secrets, intimate details.
+- **NEVER skip this check.**
+
+## General Rules
 - Create exactly 1 memory that captures the document's most important information.
-- **CRITICAL**: You MUST output in the SAME language as the input. Chinese input → Chinese output. English input → English output. NEVER translate.
-- Do NOT translate content to English. If the input is in Chinese, ALL fields (l0_abstract, l1_overview, l2_content) MUST be in Chinese.
 - The l2_content should be a thorough summary covering all key points.
 - Do NOT split into multiple facts — produce one comprehensive memory.
 
@@ -264,11 +290,35 @@ Return ONLY valid JSON:
 
 const BASE_SYSTEM_PROMPT: &str = r#"You are an information extraction engine. Your task is to extract distinct, atomic facts from the USER messages in a conversation.
 
-## Rules
+## ABSOLUTE RULES (Violating any of these is a FAILURE)
+
+### Rule 1: Language Preservation (MANDATORY)
+- **YOU MUST OUTPUT IN THE SAME LANGUAGE AS THE USER INPUT.**
+- If the user speaks Chinese, EVERY SINGLE FIELD must be in Chinese: l0_abstract, l1_overview, l2_content, tags, EVERYTHING.
+- If the user speaks English, EVERY SINGLE FIELD must be in English.
+- **NEVER translate. NEVER mix languages. NEVER output English for Chinese input.**
+- **Before returning, verify: "Are ALL fields in the same language as the input?" If not, rewrite them.**
+
+### Rule 2: Privacy Detection (MANDATORY)
+- **Before outputting each memory, you MUST check: "Does this fact contain sensitive or private content?"**
+- If YES, you MUST add the tag "私密" to the tags array.
+- **NEVER skip this check. NEVER forget the "私密" tag for sensitive content.**
+- Sensitive content includes:
+  - Passwords, API keys, tokens, credentials, authentication details
+  - Server IPs, hostnames, SSH keys, database connection strings
+  - Personal identity numbers, bank accounts, financial information
+  - Sexual content, erotic descriptions, intimate behavior
+  - Deeply personal emotions, relationship details, family conflicts
+  - Any content the user would reasonably want to keep private
+- **Privacy Check Examples:**
+  - "My password is abc123" → tags MUST include "私密"
+  - "Server IP: 192.168.1.1, root password: xxx" → tags MUST include "私密"
+  - "API key: sk-xxxxxxxx" → tags MUST include "私密"
+  - "I had a fight with my wife" → tags MUST include "私密"
+
+## General Rules
 - Extract facts ONLY from USER messages. Assistant messages provide context only.
 - Each fact must be atomic — one piece of information per fact.
-- **CRITICAL**: You MUST output in the SAME language as the input. Chinese input → Chinese facts. English input → English facts. NEVER translate.
-- Do NOT translate content to English. If the input is in Chinese, ALL fields (l0_abstract, l1_overview, l2_content) MUST be in Chinese.
 - Maximum 50 facts per extraction.
 
 ## Categories
@@ -302,21 +352,21 @@ Return ONLY valid JSON:
 
 ## Examples
 
-### Example 1 — Profile
-User says: "I'm a backend engineer at Stripe, working on the payments team."
+### Example 1 — Profile (Chinese Input → Chinese Output)
+User says: "我是Stripe的后端工程师，在支付团队工作。"
 ```json
-{"memories": [{"l0_abstract": "User is a backend engineer at Stripe on the payments team", "l1_overview": "**Role**: Backend Engineer\n**Company**: Stripe\n**Team**: Payments", "l2_content": "The user identified themselves as a backend engineer working at Stripe, specifically on the payments team.", "category": "profile", "tags": ["career", "stripe"]}]}
+{"memories": [{"l0_abstract": "用户是Stripe支付团队的后端工程师", "l1_overview": "**职位**: 后端工程师\n**公司**: Stripe\n**团队**: 支付团队", "l2_content": "用户自我介绍为Stripe公司的后端工程师，具体在支付团队工作。", "category": "profile", "tags": ["职业", "stripe"]}]}
 ```
 
-### Example 2 — Preference
-User says: "I always use Rust for systems programming, I find it much safer than C++."
+### Example 2 — Preference (Chinese Input → Chinese Output)
+User says: "我习惯用Rust做系统编程，比C++安全多了。"
 ```json
-{"memories": [{"l0_abstract": "User prefers Rust over C++ for systems programming", "l1_overview": "**Language**: Rust preferred for systems programming\n**Reason**: Safety advantages over C++", "l2_content": "The user expressed a strong preference for Rust over C++ when doing systems programming, citing safety as the primary advantage.", "category": "preferences", "tags": ["rust", "programming-languages"]}]}
+{"memories": [{"l0_abstract": "用户偏好使用Rust进行系统编程", "l1_overview": "**语言**: Rust（系统编程首选）\n**原因**: 比C++更安全", "l2_content": "用户表达了对Rust的偏好，在进行系统编程时选择Rust而非C++，主要原因是Rust的安全性优势。", "category": "preferences", "tags": ["rust", "编程语言"]}]}
 ```
 
-### Example 3 — Case
-User says: "My Docker builds were failing because the COPY step couldn't find the file. Turned out I needed to add it to .dockerignore exceptions."
+### Example 3 — Case with Private Content (Chinese Input → Chinese Output + 私密标签)
+User says: "我的服务器IP是47.93.199.242，root密码是Mengfanbo@0714，部署了omem服务。"
 ```json
-{"memories": [{"l0_abstract": "Docker COPY failure fixed by updating .dockerignore exceptions", "l1_overview": "**Problem**: Docker COPY step fails — file not found\n**Cause**: File excluded by .dockerignore\n**Solution**: Add exception to .dockerignore", "l2_content": "The user encountered Docker build failures where the COPY step couldn't find the target file. The root cause was that .dockerignore was excluding the file. The fix was to add an exception entry in .dockerignore to allow the file to be included in the build context.", "category": "cases", "tags": ["docker", "debugging"]}]}
+{"memories": [{"l0_abstract": "用户拥有服务器用于部署omem服务", "l1_overview": "**用途**: 部署omem服务\n**备注**: 服务器访问信息已保存", "l2_content": "用户拥有一台用于部署omem服务的服务器。", "category": "entities", "tags": ["服务器", "omem", "私密"]}]}
 ```
 "#;
