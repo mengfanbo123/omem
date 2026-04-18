@@ -1,13 +1,24 @@
-import type { Model, UserMessage, Part, OpencodeClient } from "@opencode-ai/sdk";
+import type { Model, UserMessage, Part } from "@opencode-ai/sdk";
 import type { OmemClient, SearchResult } from "./client.js";
 import { detectKeyword, KEYWORD_NUDGE } from "./keywords.js";
 
 const MAX_RECALL_RESULTS = 10;
 const MAX_CONTENT_LENGTH = 500;
+const TOAST_DELAY_MS = 7000;
+
+function showToast(tui: any, title: string, message: string, variant: string = "info") {
+  if (!tui) return;
+  setTimeout(() => {
+    try {
+      tui.showToast({ body: { title, message, variant, duration: 5000 } });
+    } catch {}
+  }, TOAST_DELAY_MS);
+}
 
 const keywordDetectedSessions = new Set<string>();
 const injectedSessions = new Set<string>();
 const firstMessages = new Map<string, string>();
+const sessionMessages = new Map<string, Array<{ role: string; content: string }>>();
 
 function formatRelativeAge(isoDate: string): string {
   const diffMs = Date.now() - new Date(isoDate).getTime();
@@ -68,12 +79,30 @@ function buildContextBlock(results: SearchResult[]): string {
   ].join("\n");
 }
 
-export function autoRecallHook(client: OmemClient, containerTags: string[]) {
+function buildRecallToast(results: SearchResult[]): { title: string; message: string; variant: string } {
+  if (results.length === 0) {
+    return {
+      title: "🧠 Memory Recall",
+      message: "The memory realm is quiet — no echoes from the past to summon.",
+      variant: "info",
+    };
+  }
+  const categories = categorize(results);
+  const catSummary = Array.from(categories.entries())
+    .map(([label, items]) => `${label}(${items.length})`)
+    .join(" · ");
+  return {
+    title: `🧠 Memory Recall · ${results.length} fragments`,
+    message: `${results.length} memories summoned from the realm · ${catSummary}`,
+    variant: "info",
+  };
+}
+
+export function autoRecallHook(client: OmemClient, containerTags: string[], tui: any) {
   return async (
     input: { sessionID?: string; model: Model },
     output: { system: string[] },
   ) => {
-    // Only inject on first message of each session
     if (!input.sessionID || injectedSessions.has(input.sessionID)) return;
     injectedSessions.add(input.sessionID);
 
@@ -85,6 +114,9 @@ export function autoRecallHook(client: OmemClient, containerTags: string[]) {
         undefined,
         containerTags,
       );
+      const toast = buildRecallToast(results);
+      showToast(tui, toast.title, toast.message, toast.variant);
+
       const block = buildContextBlock(results);
       if (block) {
         output.system.push(block);
@@ -105,12 +137,12 @@ export function autoRecallHook(client: OmemClient, containerTags: string[]) {
         keywordDetectedSessions.delete(input.sessionID);
       }
     } catch {
-      // intentionally silent to never block chat
+      showToast(tui, "🧠 Memory Recall", "Spiritual pulse disturbance · memory recall blocked", "warning");
     }
   };
 }
 
-export function keywordDetectionHook() {
+export function keywordDetectionHook(client: OmemClient, containerTags: string[], threshold: number, tui: any, ingestMode: "smart" | "raw" = "smart") {
   return async (
     input: { sessionID: string; messageID?: string },
     output: { message: UserMessage; parts: Part[] },
@@ -120,22 +152,69 @@ export function keywordDetectionHook() {
       .map((p) => p.text)
       .join(" ");
 
-    // Store first message for semantic search (truncate to prevent 414)
     if (!firstMessages.has(input.sessionID)) {
-      firstMessages.set(input.sessionID, truncate(textContent, 500));
+      firstMessages.set(input.sessionID, textContent);
     }
 
     if (detectKeyword(textContent)) {
       keywordDetectedSessions.add(input.sessionID);
     }
+
+    if (!sessionMessages.has(input.sessionID)) {
+      sessionMessages.set(input.sessionID, []);
+    }
+    sessionMessages.get(input.sessionID)!.push({
+      role: "user",
+      content: textContent,
+    });
+
+    const messages = sessionMessages.get(input.sessionID)!;
+    if (messages.length >= threshold) {
+      try {
+        const result = await client.ingestMessages(messages, {
+          mode: ingestMode,
+          tags: [...containerTags, "auto-capture"],
+          sessionId: input.sessionID,
+        });
+        if (result === null) {
+          showToast(tui, "🔴 Capture Failed", `Memory capture blocked · check API Key and spiritual connection`, "error");
+        } else {
+          showToast(tui, "🧠 Memory Sealed", `${messages.length} dialogues captured · entrusted to the heavens for refinement`, "success");
+          sessionMessages.delete(input.sessionID);
+        }
+      } catch {
+        showToast(tui, "🔴 Capture Failed", "Memory capture blocked · spiritual pulse anomaly", "error");
+      }
+    }
   };
 }
 
-export function compactingHook(client: OmemClient, containerTags: string[]) {
+export function compactingHook(client: OmemClient, containerTags: string[], tui: any, ingestMode: "smart" | "raw" = "smart") {
   return async (
-    _input: { sessionID?: string },
+    input: { sessionID?: string },
     output: { context: string[]; prompt?: string },
   ) => {
+    if (input.sessionID && sessionMessages.has(input.sessionID)) {
+      const messages = sessionMessages.get(input.sessionID)!;
+      if (messages.length > 0) {
+        try {
+          const result = await client.ingestMessages(messages, {
+            mode: ingestMode,
+            tags: [...containerTags, "auto-capture"],
+            sessionId: input.sessionID,
+          });
+          if (result === null) {
+            showToast(tui, "🔴 Archive Failed", "Session archive blocked · check spiritual realm status", "error");
+          } else {
+            showToast(tui, "📦 Session Archived", `${messages.length} residual dialogues archived · merged into the realm`, "success");
+          }
+        } catch {
+          showToast(tui, "🔴 Archive Failed", "Session archive blocked · spiritual pulse anomaly", "error");
+        }
+        sessionMessages.delete(input.sessionID);
+      }
+    }
+
     try {
       const results = await client.searchMemories("*", 20, undefined, containerTags);
       const block = buildContextBlock(results);
@@ -143,58 +222,6 @@ export function compactingHook(client: OmemClient, containerTags: string[]) {
         output.context.push(block);
       }
     } catch {
-      // intentionally silent
-    }
-  };
-}
-
-export function sessionEndHook(
-  client: OpencodeClient,
-  omemClient: OmemClient,
-  containerTags: string[],
-) {
-  return async (input: any) => {
-    const event = input?.event;
-    if (!event || event.type !== "session.deleted") return;
-
-    const { sessionID, info } = event.properties;
-    const directory = info.directory || "";
-
-    try {
-      const msgResp = await (client as any).session?.messages({ sessionID, limit: 100 });
-      if (!msgResp?.ok) return;
-      const messages: Array<{
-        info: { role: string; [key: string]: any };
-        parts: Array<{ type: string; text?: string; ignored?: boolean; synthetic?: boolean; [key: string]: any }>;
-      }> = msgResp.data ?? [];
-
-      const chatMessages: Array<{ role: string; content: string }> = [];
-      for (const msg of messages) {
-        const role = msg.info.role === "user" ? "user" : "assistant";
-        const texts: string[] = [];
-        for (const part of msg.parts ?? []) {
-          if (part.type === "text" && !part.ignored && !part.synthetic && part.text) {
-            texts.push(part.text);
-          }
-        }
-        if (texts.length > 0) {
-          chatMessages.push({ role, content: texts.join("\n") });
-        }
-      }
-
-      if (chatMessages.length === 0) return;
-
-      const wasCompacted = !!(info.time?.compacting);
-      const tags = wasCompacted ? [...containerTags, "session:compacted"] : containerTags;
-
-      await omemClient.ingestMessages(chatMessages, {
-        mode: "smart",
-        sessionId: sessionID,
-        entityContext: directory,
-        tags,
-      });
-    } catch {
-      // intentionally silent
     }
   };
 }
