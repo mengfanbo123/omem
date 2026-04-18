@@ -8,7 +8,7 @@ use crate::domain::profile::UserProfile;
 use crate::domain::types::MemoryState;
 use crate::lifecycle::decay::parse_datetime;
 use crate::retrieve::SearchResult;
-use crate::store::lancedb::LanceStore;
+use crate::store::lancedb::{LanceStore, ListFilter};
 
 pub struct ProfileResponse {
     pub profile: UserProfile,
@@ -25,14 +25,17 @@ impl ProfileService {
     }
 
     pub async fn get_profile(&self, query: Option<&str>) -> Result<ProfileResponse, OmemError> {
-        let all_memories = self.store.list(200, 0).await?;
+        let filter = ListFilter {
+            state: Some("active".to_string()),
+            sort: "created_at".to_string(),
+            order: "desc".to_string(),
+            ..Default::default()
+        };
+        let all_memories = self.store.list_filtered(&filter, 1000, 0).await?;
 
         let mut static_memories: Vec<_> = all_memories
             .iter()
-            .filter(|m| {
-                m.state == MemoryState::Active
-                    && (m.category == Category::Profile || m.category == Category::Preferences)
-            })
+            .filter(|m| m.category == Category::Profile || m.category == Category::Preferences)
             .collect();
         static_memories.sort_by(|a, b| {
             b.importance
@@ -49,11 +52,10 @@ impl ProfileService {
         let dynamic_context: Vec<String> = all_memories
             .iter()
             .filter(|m| {
-                m.state == MemoryState::Active
-                    && matches!(
-                        m.category,
-                        Category::Events | Category::Cases | Category::Patterns
-                    )
+                matches!(
+                    m.category,
+                    Category::Events | Category::Cases | Category::Patterns
+                )
                     && parse_datetime(&m.created_at)
                         .map(|dt| dt >= cutoff)
                         .unwrap_or(false)
