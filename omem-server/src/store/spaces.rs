@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arrow_array::{RecordBatch, RecordBatchIterator, StringArray};
+use arrow_array::{Datum, RecordBatch, RecordBatchIterator, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use futures::TryStreamExt;
 use lancedb::query::{ExecutableQuery, QueryBase};
@@ -243,12 +243,12 @@ impl SpaceStore {
                 let hash = batch
                     .column_by_name("password_hash")
                     .and_then(|c| c.as_any().downcast_ref::<StringArray>())
-                    .and_then(|arr| arr.get(0).map(String::from))
+                    .map(|arr| arr.value(0).to_string())
                     .ok_or_else(|| OmemError::Storage("missing password_hash".to_string()))?;
                 let salt = batch
                     .column_by_name("salt")
                     .and_then(|c| c.as_any().downcast_ref::<StringArray>())
-                    .and_then(|arr| arr.get(0).map(String::from))
+                    .map(|arr| arr.value(0).to_string())
                     .ok_or_else(|| OmemError::Storage("missing salt".to_string()))?;
                 return Ok(Some((hash, salt)));
             }

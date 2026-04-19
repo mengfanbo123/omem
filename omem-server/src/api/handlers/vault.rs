@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::api::error::ApiError;
-use crate::api::middleware::extract_tenant;
 use crate::api::server::{personal_space_id, AppState};
+use crate::domain::error::OmemError;
+use crate::domain::tenant::AuthInfo;
 
 #[derive(Deserialize)]
 pub struct SetVaultPasswordRequest {
@@ -46,10 +46,10 @@ fn generate_salt() -> String {
 /// Set or update vault password for the current space
 pub async fn set_vault_password(
     State(state): State<Arc<AppState>>,
-    extract_tenant(tenant): extract_tenant,
+    Extension(auth): Extension<AuthInfo>,
     Json(req): Json<SetVaultPasswordRequest>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let space_id = personal_space_id(&tenant.id);
+) -> Result<Json<serde_json::Value>, OmemError> {
+    let space_id = personal_space_id(&auth.tenant_id);
     let salt = generate_salt();
     let password_hash = hash_password(&req.password, &salt);
     
@@ -57,7 +57,7 @@ pub async fn set_vault_password(
         .space_store
         .set_vault_password(&space_id, &password_hash, &salt)
         .await
-        .map_err(|e| ApiError::Internal(format!("failed to set vault password: {e}")))?;
+        .map_err(|e| OmemError::Internal(format!("failed to set vault password: {e}")))?;
     
     Ok(Json(serde_json::json!({"success": true})))
 }
@@ -65,16 +65,16 @@ pub async fn set_vault_password(
 /// Verify vault password
 pub async fn verify_vault_password(
     State(state): State<Arc<AppState>>,
-    extract_tenant(tenant): extract_tenant,
+    Extension(auth): Extension<AuthInfo>,
     Json(req): Json<VerifyVaultPasswordRequest>,
-) -> Result<Json<VaultVerifyResponse>, ApiError> {
-    let space_id = personal_space_id(&tenant.id);
+) -> Result<Json<VaultVerifyResponse>, OmemError> {
+    let space_id = personal_space_id(&auth.tenant_id);
     
     let stored = state
         .space_store
         .get_vault_password(&space_id)
         .await
-        .map_err(|e| ApiError::Internal(format!("failed to get vault password: {e}")))?;
+        .map_err(|e| OmemError::Internal(format!("failed to get vault password: {e}")))?;
     
     let valid = match stored {
         Some((hash, salt)) => {
@@ -90,15 +90,15 @@ pub async fn verify_vault_password(
 /// Delete vault password
 pub async fn delete_vault_password(
     State(state): State<Arc<AppState>>,
-    extract_tenant(tenant): extract_tenant,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let space_id = personal_space_id(&tenant.id);
+    Extension(auth): Extension<AuthInfo>,
+) -> Result<Json<serde_json::Value>, OmemError> {
+    let space_id = personal_space_id(&auth.tenant_id);
     
     state
         .space_store
         .delete_vault_password(&space_id)
         .await
-        .map_err(|e| ApiError::Internal(format!("failed to delete vault password: {e}")))?;
+        .map_err(|e| OmemError::Internal(format!("failed to delete vault password: {e}")))?;
     
     Ok(Json(serde_json::json!({"success": true})))
 }
@@ -106,15 +106,15 @@ pub async fn delete_vault_password(
 /// Get vault status (whether password is set)
 pub async fn get_vault_status(
     State(state): State<Arc<AppState>>,
-    extract_tenant(tenant): extract_tenant,
-) -> Result<Json<VaultStatusResponse>, ApiError> {
-    let space_id = personal_space_id(&tenant.id);
+    Extension(auth): Extension<AuthInfo>,
+) -> Result<Json<VaultStatusResponse>, OmemError> {
+    let space_id = personal_space_id(&auth.tenant_id);
     
     let has_password = state
         .space_store
         .get_vault_password(&space_id)
         .await
-        .map_err(|e| ApiError::Internal(format!("failed to get vault status: {e}")))?;
+        .map_err(|e| OmemError::Internal(format!("failed to get vault status: {e}")))?;
     
     Ok(Json(VaultStatusResponse {
         has_password: has_password.is_some(),
