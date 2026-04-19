@@ -77,6 +77,7 @@ pub struct ListQuery {
     pub category: Option<String>,
     pub tier: Option<String>,
     pub tags: Option<String>,
+    pub visibility: Option<String>,
     #[serde(default = "default_sort")]
     pub sort: String,
     #[serde(default = "default_order")]
@@ -610,6 +611,7 @@ pub async fn list_memories(
             .map(|t| t.split(',').map(|s| s.trim().to_string()).collect()),
         memory_type: params.memory_type,
         state: params.state,
+        visibility: params.visibility,
         sort: params.sort,
         order: params.order,
     };

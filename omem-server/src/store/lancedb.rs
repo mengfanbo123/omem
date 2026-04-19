@@ -30,6 +30,7 @@ pub struct ListFilter {
     pub tags: Option<Vec<String>>,
     pub memory_type: Option<String>,
     pub state: Option<String>,
+    pub visibility: Option<String>,
     pub sort: String,
     pub order: String,
 }
@@ -42,6 +43,7 @@ impl Default for ListFilter {
             tags: None,
             memory_type: None,
             state: None,
+            visibility: None,
             sort: "created_at".to_string(),
             order: "desc".to_string(),
         }
@@ -848,6 +850,9 @@ impl LanceStore {
                 let escaped = escape_sql(tag);
                 conditions.push(format!("(tags LIKE '%\"{}\"%')", escaped));
             }
+        }
+        if let Some(ref v) = filter.visibility {
+            conditions.push(format!("visibility = '{}'", escape_sql(v)));
         }
 
         if conditions.is_empty() {

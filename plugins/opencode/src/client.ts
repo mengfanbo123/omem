@@ -191,6 +191,10 @@ export class OmemClient {
     return this.request("/v1/profile");
   }
 
+  async getStats(): Promise<unknown> {
+    return this.request("/v1/stats");
+  }
+
   async listRecent(limit = 20): Promise<MemoryDto[]> {
     const res = await this.request<ListResponse>(
       `/v1/memories?limit=${limit}&offset=0`,

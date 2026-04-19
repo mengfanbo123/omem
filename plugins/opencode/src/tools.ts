@@ -98,6 +98,81 @@ export function buildTools(client: OmemClient, containerTags: string[]) {
       },
     }),
 
+    memory_profile: tool({
+      description:
+        "Get the user profile synthesized from stored memories. Shows preferences, patterns, and key information.",
+      args: {},
+      async execute() {
+        const profile = await client.getProfile();
+        if (!profile) return JSON.stringify({ ok: false, error: "Failed to get profile" });
+        return JSON.stringify({ ok: true, profile });
+      },
+    }),
+
+    memory_list: tool({
+      description:
+        "List the most recent memories. Use to browse what's been remembered without a search query.",
+      args: {
+        limit: tool.schema
+          .number()
+          .optional()
+          .describe("Max memories to return (default: 20)"),
+      },
+      async execute(args) {
+        const memories = await client.listRecent(args.limit ?? 20);
+        if (memories.length === 0) return JSON.stringify({ ok: true, count: 0, memories: [] });
+        const items = memories.map((m) => ({
+          id: m.id,
+          content: m.content.slice(0, 120),
+          category: m.category,
+          tags: m.tags,
+        }));
+        return JSON.stringify({ ok: true, count: memories.length, memories: items });
+      },
+    }),
+
+    memory_ingest: tool({
+      description:
+        "Ingest conversation messages for intelligent extraction. The system extracts atomic facts, deduplicates, and reconciles with existing memories.",
+      args: {
+        messages: tool.schema
+          .array(
+            tool.schema.object({
+              role: tool.schema.string().describe("Message role: user, assistant, or system"),
+              content: tool.schema.string().describe("Message content"),
+            }),
+          )
+          .describe("Conversation messages to ingest"),
+        mode: tool.schema
+          .enum(["smart", "raw"])
+          .optional()
+          .describe("Extraction mode: 'smart' (default) or 'raw'"),
+        tags: tool.schema
+          .array(tool.schema.string())
+          .optional()
+          .describe("Tags to apply to extracted memories"),
+      },
+      async execute(args) {
+        const result = await client.ingestMessages(args.messages, {
+          mode: args.mode ?? "smart",
+          tags: args.tags,
+        });
+        if (result === null) return JSON.stringify({ ok: false, error: "Ingestion failed" });
+        return JSON.stringify({ ok: true, result });
+      },
+    }),
+
+    memory_stats: tool({
+      description:
+        "Get statistics about stored memories — counts by category, type, tier, and timeline.",
+      args: {},
+      async execute() {
+        const stats = await client.getStats();
+        if (!stats) return JSON.stringify({ ok: false, error: "Failed to get stats" });
+        return JSON.stringify({ ok: true, stats });
+      },
+    }),
+
     memory_delete: tool({
       description:
         "Delete a memory by ID. Use when the user asks to forget something.",
