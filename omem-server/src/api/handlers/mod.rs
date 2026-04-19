@@ -7,6 +7,7 @@ pub mod sharing;
 pub mod spaces;
 pub mod stats;
 pub mod tenant;
+pub mod vault;
 
 pub use files::upload_file;
 pub use github::{github_connect, github_webhook};
@@ -32,3 +33,6 @@ pub use stats::{
     get_stats, get_tags,
 };
 pub use tenant::create_tenant;
+pub use vault::{
+    delete_vault_password, get_vault_status, set_vault_password, verify_vault_password,
+};

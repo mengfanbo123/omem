@@ -90,6 +90,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/v1/spaces/{id}/auto-share-rules/{rule_id}",
             delete(handlers::delete_auto_share_rule),
         )
+        .route("/v1/vault/password", post(handlers::set_vault_password))
+        .route("/v1/vault/verify", post(handlers::verify_vault_password))
+        .route("/v1/vault/password", delete(handlers::delete_vault_password))
+        .route("/v1/vault/status", get(handlers::get_vault_status))
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,

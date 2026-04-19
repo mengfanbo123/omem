@@ -13,6 +13,7 @@ use crate::domain::space::{SharingEvent, Space};
 const SPACES_TABLE: &str = "spaces";
 const SHARING_EVENTS_TABLE: &str = "sharing_events";
 const IMPORT_TASKS_TABLE: &str = "import_tasks";
+const VAULT_PASSWORDS_TABLE: &str = "vault_passwords";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ImportTaskRecord {
@@ -102,6 +103,16 @@ impl SpaceStore {
                 })?;
         }
 
+        if !existing.contains(&VAULT_PASSWORDS_TABLE.to_string()) {
+            self.spaces_db
+                .create_empty_table(VAULT_PASSWORDS_TABLE, Self::vault_passwords_schema())
+                .execute()
+                .await
+                .map_err(|e| {
+                    OmemError::Storage(format!("failed to create vault_passwords table: {e}"))
+                })?;
+        }
+
         Ok(())
     }
 
@@ -139,6 +150,15 @@ impl SpaceStore {
         ]))
     }
 
+    fn vault_passwords_schema() -> Arc<Schema> {
+        Arc::new(Schema::new(vec![
+            Field::new("space_id", DataType::Utf8, false),
+            Field::new("password_hash", DataType::Utf8, false),
+            Field::new("salt", DataType::Utf8, false),
+            Field::new("created_at", DataType::Utf8, false),
+        ]))
+    }
+
     async fn open_spaces_table(&self) -> Result<lancedb::table::Table, OmemError> {
         self.spaces_db
             .open_table(SPACES_TABLE)
@@ -161,6 +181,88 @@ impl SpaceStore {
             .execute()
             .await
             .map_err(|e| OmemError::Storage(format!("failed to open import_tasks table: {e}")))
+    }
+
+    async fn open_vault_passwords_table(&self) -> Result<lancedb::table::Table, OmemError> {
+        self.spaces_db
+            .open_table(VAULT_PASSWORDS_TABLE)
+            .execute()
+            .await
+            .map_err(|e| OmemError::Storage(format!("failed to open vault_passwords table: {e}")))
+    }
+
+    pub async fn set_vault_password(
+        &self,
+        space_id: &str,
+        password_hash: &str,
+        salt: &str,
+    ) -> Result<(), OmemError> {
+        self.delete_vault_password(space_id).await.ok();
+
+        let created_at = chrono::Utc::now().to_rfc3339();
+        let batch = RecordBatch::try_new(
+            Self::vault_passwords_schema(),
+            vec![
+                Arc::new(StringArray::from(vec![space_id])),
+                Arc::new(StringArray::from(vec![password_hash])),
+                Arc::new(StringArray::from(vec![salt])),
+                Arc::new(StringArray::from(vec![created_at.as_str()])),
+            ],
+        )
+        .map_err(|e| OmemError::Storage(format!("failed to build vault password batch: {e}")))?;
+
+        let table = self.open_vault_passwords_table().await?;
+        let reader = RecordBatchIterator::new(vec![Ok(batch)], Self::vault_passwords_schema());
+        table
+            .add(Box::new(reader) as Box<dyn arrow_array::RecordBatchReader + Send>)
+            .execute()
+            .await
+            .map_err(|e| OmemError::Storage(format!("failed to insert vault password: {e}")))?;
+
+        Ok(())
+    }
+
+    pub async fn get_vault_password(
+        &self,
+        space_id: &str,
+    ) -> Result<Option<(String, String)>, OmemError> {
+        let table = self.open_vault_passwords_table().await?;
+        let batches: Vec<RecordBatch> = table
+            .query()
+            .only_if(format!("space_id = '{}'", escape_sql(space_id)))
+            .limit(1)
+            .execute()
+            .await
+            .map_err(|e| OmemError::Storage(format!("vault password query failed: {e}")))?
+            .try_collect()
+            .await
+            .map_err(|e| OmemError::Storage(format!("collect failed: {e}")))?;
+
+        for batch in &batches {
+            if batch.num_rows() > 0 {
+                let hash = batch
+                    .column_by_name("password_hash")
+                    .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                    .and_then(|arr| arr.get(0).map(String::from))
+                    .ok_or_else(|| OmemError::Storage("missing password_hash".to_string()))?;
+                let salt = batch
+                    .column_by_name("salt")
+                    .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                    .and_then(|arr| arr.get(0).map(String::from))
+                    .ok_or_else(|| OmemError::Storage("missing salt".to_string()))?;
+                return Ok(Some((hash, salt)));
+            }
+        }
+        Ok(None)
+    }
+
+    pub async fn delete_vault_password(&self, space_id: &str) -> Result<(), OmemError> {
+        let table = self.open_vault_passwords_table().await?;
+        table
+            .delete(format!("space_id = '{}'", escape_sql(space_id)).as_str())
+            .await
+            .map_err(|e| OmemError::Storage(format!("failed to delete vault password: {e}")))?;
+        Ok(())
     }
 
     pub async fn create_space(&self, space: &Space) -> Result<(), OmemError> {
