@@ -146,17 +146,6 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
         ].join("\n");
         output.system.push(profileBlock);
         profileInjected = true;
-
-        try {
-          await client.recordSessionRecall(
-            input.sessionID,
-            ["profile"],
-            "auto",
-            query_text,
-            0,
-            0,
-          );
-        } catch {}
       }
 
       if (!shouldRecallRes.should_recall) {

@@ -11,7 +11,7 @@ import { buildTools } from "./tools.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-let pluginVersion = "1.0.7";
+let pluginVersion = "1.0.8";
 try {
   const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
   pluginVersion = pkg.version || "1.0.7";
