@@ -138,6 +138,7 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
 
       const profile = await client.getProfile();
       let profileInjected = false;
+      let profileCountText = "";
       if (profile) {
         const profileBlock = [
           "<omem-profile>",
@@ -146,11 +147,15 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
         ].join("\n");
         output.system.push(profileBlock);
         profileInjected = true;
+        const p = profile as any;
+        const dynamicCount = p?.dynamic_context?.length ?? 0;
+        const staticCount = p?.static_facts?.length ?? 0;
+        profileCountText = `Dynamic(${dynamicCount}) · Static(${staticCount})`;
       }
 
       if (!shouldRecallRes.should_recall) {
         if (profileInjected) {
-          showToast(tui, "✨ Profile Injected", "User profile loaded · no memory recall needed", "success");
+          showToast(tui, "👨 Profile Injected", `${profileCountText} · no memory recall needed`, "success");
         }
         return;
       }
@@ -161,7 +166,7 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
       const newResults = results.filter((r) => !existingIds.has(r.memory.id));
       if (newResults.length === 0) {
         if (profileInjected) {
-          showToast(tui, "✨ Profile Injected", "User profile loaded · all memories already injected", "success");
+          showToast(tui, "👨 Profile Injected", `${profileCountText} · all memories already injected`, "success");
         }
         return;
       }
