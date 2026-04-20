@@ -98,26 +98,7 @@ function buildContextBlock(results: SearchResult[]): string {
   ].join("\n");
 }
 
-function buildRecallToast(results: SearchResult[]): { title: string; message: string; variant: string } {
-  if (results.length === 0) {
-    return {
-      title: "🧠 Memory Recall",
-      message: "The memory realm is quiet — no echoes from the past to summon.",
-      variant: "info",
-    };
-  }
-  const categories = categorize(results);
-  const catSummary = Array.from(categories.entries())
-    .map(([label, items]) => `${label}(${items.length})`)
-    .join(" · ");
-  return {
-    title: `🧠 Memory Recall · ${results.length} fragments`,
-    message: `${results.length} memories summoned from the realm · ${catSummary}`,
-    variant: "info",
-  };
-}
-
-export function autoRecallHook(client: OmemClient, containerTags: string[], tui: any, similarityThreshold: number = 0.6, maxRecallResults: number = 10) {
+export function autoRecallHook(client: OmemClient, _containerTags: string[], tui: any, similarityThreshold: number = 0.6, maxRecallResults: number = 10) {
   return async (
     input: { sessionID?: string; model: Model },
     output: { system: string[] },
@@ -190,23 +171,39 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
         shouldRecallRes?.confidence,
       );
 
-      const dynamicCount = newResults.filter((r) => r.memory.memory_type === "fact" || r.memory.memory_type === "event").length;
-      const staticCount = newResults.filter((r) => r.memory.memory_type === "pinned" || r.memory.memory_type === "preference").length;
-      const otherCount = newResults.length - dynamicCount - staticCount;
+      const memDynamic = newResults.filter((r) => r.memory.memory_type === "fact" || r.memory.memory_type === "event").length;
+      const memStatic = newResults.filter((r) => r.memory.memory_type === "pinned" || r.memory.memory_type === "preference").length;
+      const memOther = newResults.length - memDynamic - memStatic;
 
-      let countMsg = "";
-      if (dynamicCount > 0) countMsg += `Dynamic(${dynamicCount}) `;
-      if (staticCount > 0) countMsg += `Static(${staticCount}) `;
-      if (otherCount > 0) countMsg += `Other(${otherCount}) `;
+      let memCountMsg = "";
+      if (memDynamic > 0) memCountMsg += `Dynamic(${memDynamic}) `;
+      if (memStatic > 0) memCountMsg += `Static(${memStatic}) `;
+      if (memOther > 0) memCountMsg += `Other(${memOther}) `;
 
-      if (recordResult) {
-        showToast(tui, "📦 Recall Recorded", `${newIds.length} memory(s) saved · ${countMsg.trim()}`, "success");
+      const categories = categorize(newResults);
+      const catSummary = Array.from(categories.entries())
+        .map(([label, items]) => `${label}(${items.length})`)
+        .join(" · ");
+
+      if (profileInjected) {
+        showToast(
+          tui,
+          `🧠 Context Injected · ${newResults.length} fragments`,
+          `Profile: ${profileCountText} · Memories: ${memCountMsg.trim()}${catSummary ? ` · ${catSummary}` : ""}`,
+          "success",
+        );
       } else {
-        showToast(tui, "🔴 Recall Record Failed", `Memories injected but save failed · ${countMsg.trim()}`, "warning");
+        showToast(
+          tui,
+          `🧠 Memory Recall · ${newResults.length} fragments`,
+          `${memCountMsg.trim()}${catSummary ? ` · ${catSummary}` : ""}`,
+          "info",
+        );
       }
 
-      const toast = buildRecallToast(newResults);
-      showToast(tui, toast.title, toast.message, toast.variant);
+      if (!recordResult) {
+        showToast(tui, "🔴 Recall Record Failed", `Memories injected but save failed · check API connection`, "warning");
+      }
 
       if (keywordDetectedSessions.has(input.sessionID)) {
         output.system.push(KEYWORD_NUDGE);
