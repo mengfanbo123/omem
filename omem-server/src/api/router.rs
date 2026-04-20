@@ -99,7 +99,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/v1/session-recalls",
             get(handlers::list_session_recalls).post(handlers::create_session_recall),
         )
-        .route("/v1/session-recalls/{id}", get(handlers::get_session_recall))
+        .route(
+            "/v1/session-recalls/{id}",
+            get(handlers::get_session_recall).delete(handlers::delete_session_recall),
+        )
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,

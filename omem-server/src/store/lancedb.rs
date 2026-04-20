@@ -376,6 +376,18 @@ impl LanceStore {
         Ok(filtered.into_iter().skip(offset).take(limit).collect())
     }
 
+    pub async fn delete_session_recall(
+        &self,
+        id: &str,
+    ) -> Result<(), OmemError> {
+        let table = self.open_session_recalls_table().await?;
+        table
+            .delete(format!("id = '{}'", escape_sql(id)).as_str())
+            .await
+            .map_err(|e| OmemError::Storage(format!("failed to delete session_recall: {e}")))?;
+        Ok(())
+    }
+
     fn memory_to_batch(memory: &Memory, vector: Option<&[f32]>) -> Result<RecordBatch, OmemError> {
         let tags_json = serde_json::to_string(&memory.tags)
             .map_err(|e| OmemError::Storage(format!("failed to serialize tags: {e}")))?;

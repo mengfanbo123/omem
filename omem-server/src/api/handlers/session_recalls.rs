@@ -295,6 +295,30 @@ pub async fn get_session_recall(
     Ok(Json(recall))
 }
 
+pub async fn delete_session_recall(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthInfo>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, OmemError> {
+    let store = state
+        .store_manager
+        .get_store(&personal_space_id(&auth.tenant_id))
+        .await?;
+
+    let recall = store
+        .get_session_recall_by_id(&id)
+        .await?
+        .ok_or_else(|| OmemError::NotFound(format!("session_recall {id}")))?;
+
+    if recall.tenant_id != auth.tenant_id {
+        return Err(OmemError::Unauthorized("access denied".to_string()));
+    }
+
+    store.delete_session_recall(&id).await?;
+
+    Ok(Json(serde_json::json!({"deleted": true, "id": id})))
+}
+
 fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
     let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();

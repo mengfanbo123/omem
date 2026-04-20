@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arrow_array::{Datum, RecordBatch, RecordBatchIterator, StringArray};
+use arrow_array::{RecordBatch, RecordBatchIterator, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use futures::TryStreamExt;
 use lancedb::query::{ExecutableQuery, QueryBase};
