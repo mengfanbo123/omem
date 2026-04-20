@@ -629,6 +629,29 @@ pub async fn list_memories(
     }))
 }
 
+// ── Batch Get ────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct BatchGetRequest {
+    pub ids: Vec<String>,
+}
+
+pub async fn batch_get_memories(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthInfo>,
+    Json(body): Json<BatchGetRequest>,
+) -> Result<Json<Vec<Memory>>, OmemError> {
+    if body.ids.is_empty() {
+        return Ok(Json(vec![]));
+    }
+    let store = state
+        .store_manager
+        .get_store(&personal_space_id(&auth.tenant_id))
+        .await?;
+    let memories = store.get_memories_by_ids(&body.ids).await?;
+    Ok(Json(memories))
+}
+
 // ── Batch Delete ─────────────────────────────────────────────────────
 
 #[derive(Deserialize)]

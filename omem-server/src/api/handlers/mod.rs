@@ -16,8 +16,8 @@ pub use imports::{
     create_import, cross_reconcile, get_import, list_imports, rollback_import, trigger_intelligence,
 };
 pub use memory::{
-    batch_delete, create_memory, delete_all_memories, delete_memory, get_memory, list_memories,
-    search_memories, update_memory,
+    batch_delete, batch_get_memories, create_memory, delete_all_memories, delete_memory, get_memory,
+    list_memories, search_memories, update_memory,
 };
 pub use profile::get_profile;
 pub use session_recalls::{

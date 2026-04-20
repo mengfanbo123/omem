@@ -12,6 +12,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     let authed_routes = Router::new()
         .route("/v1/memories/search", get(handlers::search_memories))
         .route("/v1/memories/batch-delete", post(handlers::batch_delete))
+        .route("/v1/memories/batch-get", post(handlers::batch_get_memories))
         .route("/v1/memories/all", delete(handlers::delete_all_memories))
         .route(
             "/v1/memories/{id}",

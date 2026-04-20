@@ -1040,6 +1040,32 @@ impl LanceStore {
         Ok(count)
     }
 
+    pub async fn get_memories_by_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<Memory>, OmemError> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let table = self.open_table().await?;
+        let id_list = ids
+            .iter()
+            .map(|id| format!("'{}'", escape_sql(id)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let filter = format!("id IN ({}) AND state != 'deleted'", id_list);
+        let batches: Vec<RecordBatch> = table
+            .query()
+            .only_if(&filter)
+            .execute()
+            .await
+            .map_err(|e| OmemError::Storage(format!("batch get failed: {e}")))?
+            .try_collect()
+            .await
+            .map_err(|e| OmemError::Storage(format!("collect failed: {e}")))?;
+        Self::batch_to_memories(&batches)
+    }
+
     fn build_where_clause(filter: &ListFilter) -> String {
         let mut conditions = Vec::new();
 

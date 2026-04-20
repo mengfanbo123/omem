@@ -60,6 +60,7 @@ pub struct ListSessionRecallsQuery {
     #[serde(default)]
     pub offset: usize,
     pub session_id: Option<String>,
+    pub expand: Option<String>,
 }
 
 fn default_limit() -> usize {
@@ -71,6 +72,8 @@ pub struct ListSessionRecallsResponse {
     pub recalls: Vec<SessionRecall>,
     pub limit: usize,
     pub offset: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memories: Option<Vec<Memory>>,
 }
 
 pub async fn should_recall(
@@ -267,10 +270,22 @@ pub async fn list_session_recalls(
         )
         .await?;
 
+    let memories = if params.expand.as_deref() == Some("memories") {
+        let memory_ids: Vec<String> = recalls.iter().map(|r| r.memory_id.clone()).collect();
+        if memory_ids.is_empty() {
+            Some(vec![])
+        } else {
+            Some(store.get_memories_by_ids(&memory_ids).await?)
+        }
+    } else {
+        None
+    };
+
     Ok(Json(ListSessionRecallsResponse {
         recalls,
         limit: params.limit,
         offset: params.offset,
+        memories,
     }))
 }
 
