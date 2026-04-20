@@ -600,12 +600,14 @@ impl LanceStore {
         if let Some(col) = batch.column_by_name("_distance") {
             if let Some(arr) = col.as_any().downcast_ref::<Float32Array>() {
                 let distance = arr.value(row);
-                return 1.0 - distance;
+                let score = 1.0 - distance;
+                return score.clamp(-1.0, 1.0);
             }
         }
         if let Some(col) = batch.column_by_name("_score") {
             if let Some(arr) = col.as_any().downcast_ref::<Float32Array>() {
-                return arr.value(row);
+                let score = arr.value(row);
+                return score.clamp(0.0, 1.0);
             }
         }
         0.0
