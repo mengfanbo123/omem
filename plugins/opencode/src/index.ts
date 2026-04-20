@@ -11,10 +11,12 @@ import { buildTools } from "./tools.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-let pluginVersion = "1.0.8";
+let pluginVersion = "unknown";
 try {
   const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
-  pluginVersion = pkg.version || "1.0.7";
+  if (pkg?.version && typeof pkg.version === "string") {
+    pluginVersion = pkg.version;
+  }
 } catch {}
 
 function showToast(tui: any, title: string, message: string, variant: string = "info", duration: number = 5000) {
