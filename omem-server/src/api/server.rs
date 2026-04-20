@@ -13,6 +13,7 @@ pub struct AppState {
     pub space_store: Arc<SpaceStore>,
     pub embed: Arc<dyn EmbedService>,
     pub llm: Arc<dyn LlmService>,
+    pub recall_llm: Arc<dyn LlmService>,
     pub config: OmemConfig,
     pub import_semaphore: Arc<Semaphore>,
     pub reconcile_semaphore: Arc<Semaphore>,

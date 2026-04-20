@@ -48,6 +48,8 @@ impl Reconciler {
         &self,
         facts: &[ExtractedFact],
         tenant_id: &str,
+        agent_id: Option<String>,
+        session_id: Option<String>,
     ) -> Result<Vec<Memory>, OmemError> {
         if facts.is_empty() {
             return Ok(Vec::new());
@@ -65,17 +67,17 @@ impl Reconciler {
         if existing.is_empty() {
             if facts.len() > 1 {
                 let deduped = self.batch_self_dedup(facts).await?;
-                return self.create_all_facts(&deduped, tenant_id).await;
+                return self.create_all_facts(&deduped, tenant_id, agent_id.clone(), session_id.clone()).await;
             }
-            return self.create_all_facts(facts, tenant_id).await;
+            return self.create_all_facts(facts, tenant_id, agent_id.clone(), session_id.clone()).await;
         }
 
         let mut created_memories = Vec::new();
         let mut remaining_facts: Vec<(usize, &ExtractedFact)> = Vec::new();
 
         for (idx, fact) in facts.iter().enumerate() {
-            if self.preference_slot_guard(fact, &existing).await? {
-                let mem = self.create_fact_memory(fact, tenant_id).await?;
+            if self.preference_slot_guard(fact, &existing, agent_id.clone(), session_id.clone()).await? {
+                let mem = self.create_fact_memory(fact, tenant_id, agent_id.clone(), session_id.clone()).await?;
                 created_memories.push(mem);
             } else {
                 remaining_facts.push((idx, fact));
@@ -103,7 +105,7 @@ impl Reconciler {
 
             match action.as_str() {
                 "CREATE" => {
-                    let mem = self.create_fact_memory(fact, tenant_id).await?;
+                    let mem = self.create_fact_memory(fact, tenant_id, agent_id.clone(), session_id.clone()).await?;
                     created_memories.push(mem);
                 }
                 "MERGE" => {
@@ -121,12 +123,12 @@ impl Reconciler {
                         .ok_or_else(|| OmemError::NotFound(format!("memory {real_id}")))?;
 
                     if target.memory_type.is_pinned() {
-                        warn!(
-                            memory_id = %real_id,
-                            "MERGE attempted on pinned memory — downgrading to CREATE"
-                        );
-                        let mem = self.create_fact_memory(fact, tenant_id).await?;
-                        created_memories.push(mem);
+                warn!(
+                    memory_id = %real_id,
+                    "MERGE attempted on pinned memory — downgrading to CREATE"
+                );
+                let mem = self.create_fact_memory(fact, tenant_id, agent_id.clone(), session_id.clone()).await?;
+                created_memories.push(mem);
                         continue;
                     }
 
@@ -154,6 +156,8 @@ impl Reconciler {
                         &int_to_uuid,
                         tenant_id,
                         &mut created_memories,
+                        agent_id.clone(),
+                        session_id.clone(),
                     )
                     .await?;
                 }
@@ -175,6 +179,8 @@ impl Reconciler {
                         &int_to_uuid,
                         tenant_id,
                         &mut created_memories,
+                        agent_id.clone(),
+                        session_id.clone(),
                     )
                     .await?;
                 }
@@ -185,12 +191,14 @@ impl Reconciler {
                         &int_to_uuid,
                         tenant_id,
                         &mut created_memories,
+                        agent_id.clone(),
+                        session_id.clone(),
                     )
                     .await?;
                 }
                 other => {
                     warn!(action = %other, "unknown reconciliation action — treating as CREATE");
-                    let mem = self.create_fact_memory(fact, tenant_id).await?;
+                    let mem = self.create_fact_memory(fact, tenant_id, agent_id.clone(), session_id.clone()).await?;
                     created_memories.push(mem);
                 }
             }
@@ -203,6 +211,8 @@ impl Reconciler {
         &self,
         fact: &ExtractedFact,
         existing: &[Memory],
+        _agent_id: Option<String>,
+        _session_id: Option<String>,
     ) -> Result<bool, OmemError> {
         let category: Category = fact.category.parse().unwrap_or(Category::Profile);
         if category != Category::Preferences {
@@ -235,6 +245,8 @@ impl Reconciler {
         int_to_uuid: &HashMap<usize, String>,
         tenant_id: &str,
         created_memories: &mut Vec<Memory>,
+        agent_id: Option<String>,
+        session_id: Option<String>,
     ) -> Result<(), OmemError> {
         let match_idx = match_index
             .ok_or_else(|| OmemError::Llm("SUPERSEDE decision missing match_index".to_string()))?;
@@ -253,12 +265,12 @@ impl Reconciler {
                 memory_id = %real_id,
                 "SUPERSEDE attempted on pinned memory — downgrading to CREATE"
             );
-            let mem = self.create_fact_memory(fact, tenant_id).await?;
+            let mem = self.create_fact_memory(fact, tenant_id, agent_id.clone(), session_id.clone()).await?;
             created_memories.push(mem);
             return Ok(());
         }
 
-        let new_mem = self.create_fact_memory(fact, tenant_id).await?;
+        let new_mem = self.create_fact_memory(fact, tenant_id, agent_id.clone(), session_id.clone()).await?;
 
         let mut archived = old;
         archived.invalidated_at = Some(chrono::Utc::now().to_rfc3339());
@@ -311,6 +323,8 @@ impl Reconciler {
         int_to_uuid: &HashMap<usize, String>,
         tenant_id: &str,
         created_memories: &mut Vec<Memory>,
+        agent_id: Option<String>,
+        session_id: Option<String>,
     ) -> Result<(), OmemError> {
         let match_idx = match_index.ok_or_else(|| {
             OmemError::Llm("CONTEXTUALIZE decision missing match_index".to_string())
@@ -319,7 +333,7 @@ impl Reconciler {
             .get(&match_idx)
             .ok_or_else(|| OmemError::Llm(format!("invalid match_index: {match_idx}")))?;
 
-        let mut new_mem = self.create_fact_memory(fact, tenant_id).await?;
+        let mut new_mem = self.create_fact_memory(fact, tenant_id, agent_id.clone(), session_id.clone()).await?;
         new_mem.relations.push(MemoryRelation {
             relation_type: RelationType::Contextualizes,
             target_id: real_id.clone(),
@@ -342,6 +356,8 @@ impl Reconciler {
         int_to_uuid: &HashMap<usize, String>,
         tenant_id: &str,
         created_memories: &mut Vec<Memory>,
+        agent_id: Option<String>,
+        session_id: Option<String>,
     ) -> Result<(), OmemError> {
         let match_idx = match_index
             .ok_or_else(|| OmemError::Llm("CONTRADICT decision missing match_index".to_string()))?;
@@ -358,11 +374,11 @@ impl Reconciler {
         let category: Category = fact.category.parse().unwrap_or(Category::Profile);
         if category.is_temporal_versioned() {
             return self
-                .handle_supersede(fact, match_index, int_to_uuid, tenant_id, created_memories)
+                .handle_supersede(fact, match_index, int_to_uuid, tenant_id, created_memories, agent_id.clone(), session_id.clone())
                 .await;
         }
 
-        let mut new_mem = self.create_fact_memory(fact, tenant_id).await?;
+        let mut new_mem = self.create_fact_memory(fact, tenant_id, agent_id.clone(), session_id.clone()).await?;
         new_mem.relations.push(MemoryRelation {
             relation_type: RelationType::Contradicts,
             target_id: real_id.clone(),
@@ -503,10 +519,12 @@ impl Reconciler {
         &self,
         facts: &[ExtractedFact],
         tenant_id: &str,
+        agent_id: Option<String>,
+        session_id: Option<String>,
     ) -> Result<Vec<Memory>, OmemError> {
         let mut memories = Vec::with_capacity(facts.len());
         for fact in facts {
-            let mem = self.create_fact_memory(fact, tenant_id).await?;
+            let mem = self.create_fact_memory(fact, tenant_id, agent_id.clone(), session_id.clone()).await?;
             memories.push(mem);
         }
         Ok(memories)
@@ -516,6 +534,8 @@ impl Reconciler {
         &self,
         fact: &ExtractedFact,
         tenant_id: &str,
+        agent_id: Option<String>,
+        session_id: Option<String>,
     ) -> Result<Memory, OmemError> {
         let category: Category = fact.category.parse().unwrap_or(Category::Profile);
 
@@ -527,6 +547,9 @@ impl Reconciler {
         mem.l2_content = fact.l2_content.clone();
         mem.tags = fact.tags.clone();
         mem.confidence = fact.quality_score.clamp(0.1, 1.0);
+        mem.agent_id = agent_id;
+        mem.session_id = session_id;
+        mem.source = Some("ingest".to_string());
 
         let embeddings = self
             .embed
@@ -652,7 +675,7 @@ mod tests {
         ];
 
         let result = reconciler
-            .reconcile(&facts, "t-001")
+            .reconcile(&facts, "t-001", None, None)
             .await
             .expect("reconcile");
 
@@ -686,7 +709,7 @@ mod tests {
         let facts = vec![make_fact("User prefers Rust", "preferences")];
 
         let result = reconciler
-            .reconcile(&facts, "t-001")
+            .reconcile(&facts, "t-001", None, None)
             .await
             .expect("reconcile");
         assert!(result.is_empty());
@@ -719,7 +742,7 @@ mod tests {
         )];
 
         let result = reconciler
-            .reconcile(&facts, "t-001")
+            .reconcile(&facts, "t-001", None, None)
             .await
             .expect("reconcile");
         assert_eq!(result.len(), 1);
@@ -763,7 +786,7 @@ mod tests {
         let facts = vec![make_fact("User now works at Stripe", "profile")];
 
         let result = reconciler
-            .reconcile(&facts, "t-001")
+            .reconcile(&facts, "t-001", None, None)
             .await
             .expect("reconcile");
         assert_eq!(result.len(), 1);
@@ -802,7 +825,7 @@ mod tests {
         let facts = vec![make_fact("Use HTTPS everywhere", "preferences")];
 
         let result = reconciler
-            .reconcile(&facts, "t-001")
+            .reconcile(&facts, "t-001", None, None)
             .await
             .expect("reconcile");
 
@@ -851,7 +874,7 @@ mod tests {
         let facts = vec![make_fact("Fact A", "profile")];
 
         let _ = reconciler
-            .reconcile(&facts, "t-001")
+            .reconcile(&facts, "t-001", None, None)
             .await
             .expect("reconcile");
 
@@ -898,7 +921,7 @@ mod tests {
         )];
 
         let result = reconciler
-            .reconcile(&facts, "t-001")
+            .reconcile(&facts, "t-001", None, None)
             .await
             .expect("reconcile");
         assert_eq!(result.len(), 1);
@@ -938,7 +961,7 @@ mod tests {
         let facts = vec![make_fact("User prefers tea in the evening", "preferences")];
 
         let result = reconciler
-            .reconcile(&facts, "t-001")
+            .reconcile(&facts, "t-001", None, None)
             .await
             .expect("reconcile");
         assert_eq!(result.len(), 1);
@@ -982,7 +1005,7 @@ mod tests {
         )];
 
         let result = reconciler
-            .reconcile(&facts, "t-001")
+            .reconcile(&facts, "t-001", None, None)
             .await
             .expect("reconcile");
         assert_eq!(result.len(), 1);
@@ -1021,7 +1044,7 @@ mod tests {
         let facts = vec![make_fact("Deployment had critical failures", "patterns")];
 
         let result = reconciler
-            .reconcile(&facts, "t-001")
+            .reconcile(&facts, "t-001", None, None)
             .await
             .expect("reconcile");
         assert_eq!(result.len(), 1);
@@ -1067,7 +1090,7 @@ mod tests {
         let facts = vec![make_fact("喜欢星巴克的美式", "preferences")];
 
         let result = reconciler
-            .reconcile(&facts, "t-001")
+            .reconcile(&facts, "t-001", None, None)
             .await
             .expect("reconcile");
         assert_eq!(result.len(), 1);
@@ -1102,7 +1125,7 @@ mod tests {
         )];
 
         let result = reconciler
-            .reconcile(&facts, "t-001")
+            .reconcile(&facts, "t-001", None, None)
             .await
             .expect("reconcile");
         assert_eq!(result.len(), 1);
@@ -1146,7 +1169,7 @@ mod tests {
         let facts = vec![make_fact("Deployed v2.1 hotfix on Jan 5", "events")];
 
         let result = reconciler
-            .reconcile(&facts, "t-001")
+            .reconcile(&facts, "t-001", None, None)
             .await
             .expect("reconcile");
         assert_eq!(result.len(), 1);

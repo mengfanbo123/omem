@@ -2,7 +2,6 @@ import type { Model, UserMessage, Part } from "@opencode-ai/sdk";
 import type { OmemClient, SearchResult } from "./client.js";
 import { detectKeyword, KEYWORD_NUDGE } from "./keywords.js";
 
-const MAX_RECALL_RESULTS = 10;
 const MAX_CONTENT_LENGTH = 500;
 const TOAST_DELAY_MS = 7000;
 
@@ -117,7 +116,7 @@ function buildRecallToast(results: SearchResult[]): { title: string; message: st
   };
 }
 
-export function autoRecallHook(client: OmemClient, containerTags: string[], tui: any, similarityThreshold: number = 0.6) {
+export function autoRecallHook(client: OmemClient, containerTags: string[], tui: any, similarityThreshold: number = 0.6, maxRecallResults: number = 10) {
   return async (
     input: { sessionID?: string; model: Model },
     output: { system: string[] },
@@ -130,7 +129,7 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
       const query_text = userMessages[userMessages.length - 1]?.content || firstMessages.get(input.sessionID) || "";
       const last_query_text = userMessages.length >= 2 ? userMessages[userMessages.length - 2].content : undefined;
 
-      const shouldRecallRes = await client.shouldRecall(query_text, last_query_text, input.sessionID, similarityThreshold);
+      const shouldRecallRes = await client.shouldRecall(query_text, last_query_text, input.sessionID, similarityThreshold, maxRecallResults);
 
       const profile = await client.getProfile();
       if (profile) {

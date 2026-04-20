@@ -1,6 +1,25 @@
 import { tool } from "@opencode-ai/plugin";
 import type { OmemClient } from "./client.js";
 
+function extractMemoryIds(result: unknown): string[] {
+  if (!result) return [];
+  if (Array.isArray(result)) {
+    return (result as Array<{ id?: string }>).map((m) => m.id).filter(Boolean) as string[];
+  }
+  if (typeof result === "object" && result !== null) {
+    const r = result as Record<string, unknown>;
+    if (Array.isArray(r.memories)) {
+      return (r.memories as Array<{ id?: string }>).map((m) => m.id).filter(Boolean) as string[];
+    }
+    if (Array.isArray(r.results)) {
+      return (r.results as Array<{ id?: string; memory?: { id?: string } }>)
+        .map((m) => m.id ?? m.memory?.id)
+        .filter(Boolean) as string[];
+    }
+  }
+  return [];
+}
+
 export function buildTools(client: OmemClient, containerTags: string[]) {
   return {
     memory_store: tool({
@@ -131,6 +150,21 @@ export function buildTools(client: OmemClient, containerTags: string[]) {
       },
     }),
 
+    session_recalls: tool({
+      description:
+        "List the injection records for a session. Use to see what memories have been recalled into the current session.",
+      args: {
+        session_id: tool.schema
+          .string()
+          .describe("Session ID to query recall records for"),
+      },
+      async execute(args) {
+        const recalls = await client.listSessionRecalls(args.session_id);
+        if (recalls.length === 0) return JSON.stringify({ ok: true, count: 0, recalls: [] });
+        return JSON.stringify({ ok: true, count: recalls.length, recalls });
+      },
+    }),
+
     memory_ingest: tool({
       description:
         "Ingest conversation messages for intelligent extraction. The system extracts atomic facts, deduplicates, and reconciles with existing memories.",
@@ -151,13 +185,31 @@ export function buildTools(client: OmemClient, containerTags: string[]) {
           .array(tool.schema.string())
           .optional()
           .describe("Tags to apply to extracted memories"),
+        session_id: tool.schema
+          .string()
+          .optional()
+          .describe("Session ID to associate with the ingestion"),
       },
       async execute(args) {
         const result = await client.ingestMessages(args.messages, {
           mode: args.mode ?? "smart",
           tags: args.tags,
+          sessionId: args.session_id,
         });
         if (result === null) return JSON.stringify({ ok: false, error: "Ingestion failed" });
+        if (args.session_id) {
+          const memoryIds = extractMemoryIds(result);
+          if (memoryIds.length > 0) {
+            await client.recordSessionRecall(
+              args.session_id,
+              memoryIds,
+              "manual",
+              args.messages.map((m) => m.content).join("\n").slice(0, 200),
+              0,
+              0,
+            ).catch(() => {});
+          }
+        }
         return JSON.stringify({ ok: true, result });
       },
     }),

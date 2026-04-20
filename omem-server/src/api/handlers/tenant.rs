@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::api::server::AppState;
@@ -12,10 +13,19 @@ use crate::domain::error::OmemError;
 use crate::domain::space::{MemberRole, Space, SpaceMember, SpaceType};
 use crate::domain::tenant::{Tenant, TenantConfig, TenantStatus};
 
+#[derive(Serialize)]
+pub struct TenantInfo {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+}
+
 #[derive(Deserialize)]
 pub struct CreateTenantBody {
     #[serde(default)]
     pub name: String,
+    #[serde(default)]
+    pub id: Option<String>,
 }
 
 /// POST /v1/tenants — No auth required.
@@ -25,7 +35,7 @@ pub async fn create_tenant(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateTenantBody>,
 ) -> Result<impl IntoResponse, OmemError> {
-    let id = Uuid::new_v4().to_string();
+    let id = body.id.unwrap_or_else(|| Uuid::new_v4().to_string());
     let tenant_name = if body.name.is_empty() {
         format!("tenant-{}", &id[..8])
     } else {
@@ -67,4 +77,21 @@ pub async fn create_tenant(
             "status": "active",
         })),
     ))
+}
+
+pub async fn get_tenant(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<TenantInfo>, OmemError> {
+    let tenant = state
+        .tenant_store
+        .get_by_id(&id)
+        .await?
+        .ok_or_else(|| OmemError::NotFound(format!("tenant {id}")))?;
+
+    Ok(Json(TenantInfo {
+        id: tenant.id,
+        name: tenant.name,
+        created_at: tenant.created_at,
+    }))
 }

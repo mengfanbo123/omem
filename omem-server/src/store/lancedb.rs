@@ -50,9 +50,23 @@ impl Default for ListFilter {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SessionRecall {
+    pub id: String,
+    pub session_id: String,
+    pub memory_id: String,
+    pub recall_type: String,
+    pub query_text: String,
+    pub similarity_score: f32,
+    pub llm_confidence: f32,
+    pub tenant_id: String,
+    pub created_at: String,
+}
+
 pub struct LanceStore {
     db: Connection,
     table_name: String,
+    session_recalls_table_name: String,
     fts_indexed: AtomicBool,
 }
 
@@ -80,6 +94,7 @@ impl LanceStore {
         Ok(Self {
             db,
             table_name: TABLE_NAME.to_string(),
+            session_recalls_table_name: "session_recalls".to_string(),
             fts_indexed: AtomicBool::new(false),
         })
     }
@@ -98,30 +113,67 @@ impl LanceStore {
                 .execute()
                 .await
                 .map_err(|e| OmemError::Storage(format!("failed to create table: {e}")))?;
-            return Ok(());
+        } else {
+            // Schema evolution: detect and add missing columns
+            let table = self.open_table().await?;
+            let current_schema = table
+                .schema()
+                .await
+                .map_err(|e| OmemError::Storage(format!("failed to get table schema: {e}")))?;
+            let expected_schema = Self::schema();
+
+            let missing_fields: Vec<Field> = expected_schema
+                .fields()
+                .iter()
+                .filter(|f| current_schema.field_with_name(f.name()).is_err())
+                .map(|f| f.as_ref().clone())
+                .collect();
+
+            if !missing_fields.is_empty() {
+                let missing_schema = Arc::new(Schema::new(missing_fields));
+                table
+                    .add_columns(NewColumnTransform::AllNulls(missing_schema), None)
+                    .await
+                    .map_err(|e| OmemError::Storage(format!("failed to add missing columns: {e}")))?;
+            }
         }
 
-        // Schema evolution: detect and add missing columns
-        let table = self.open_table().await?;
-        let current_schema = table
-            .schema()
-            .await
-            .map_err(|e| OmemError::Storage(format!("failed to get table schema: {e}")))?;
-        let expected_schema = Self::schema();
-
-        let missing_fields: Vec<Field> = expected_schema
-            .fields()
-            .iter()
-            .filter(|f| current_schema.field_with_name(f.name()).is_err())
-            .map(|f| f.as_ref().clone())
-            .collect();
-
-        if !missing_fields.is_empty() {
-            let missing_schema = Arc::new(Schema::new(missing_fields));
-            table
-                .add_columns(NewColumnTransform::AllNulls(missing_schema), None)
+        if !existing.contains(&self.session_recalls_table_name) {
+            self.db
+                .create_empty_table(&self.session_recalls_table_name, Self::session_recalls_schema())
+                .execute()
                 .await
-                .map_err(|e| OmemError::Storage(format!("failed to add missing columns: {e}")))?;
+                .map_err(|e| {
+                    OmemError::Storage(format!("failed to create session_recalls table: {e}"))
+                })?;
+        } else {
+            let table = self.open_session_recalls_table().await?;
+            let current_schema = table
+                .schema()
+                .await
+                .map_err(|e| {
+                    OmemError::Storage(format!("failed to get session_recalls schema: {e}"))
+                })?;
+            let expected_schema = Self::session_recalls_schema();
+
+            let missing_fields: Vec<Field> = expected_schema
+                .fields()
+                .iter()
+                .filter(|f| current_schema.field_with_name(f.name()).is_err())
+                .map(|f| f.as_ref().clone())
+                .collect();
+
+            if !missing_fields.is_empty() {
+                let missing_schema = Arc::new(Schema::new(missing_fields));
+                table
+                    .add_columns(NewColumnTransform::AllNulls(missing_schema), None)
+                    .await
+                    .map_err(|e| {
+                        OmemError::Storage(format!(
+                            "failed to add missing columns to session_recalls: {e}"
+                        ))
+                    })?;
+            }
         }
 
         Ok(())
@@ -176,6 +228,152 @@ impl LanceStore {
             .execute()
             .await
             .map_err(|e| OmemError::Storage(format!("failed to open table: {e}")))
+    }
+
+    async fn open_session_recalls_table(&self) -> Result<Table, OmemError> {
+        self.db
+            .open_table(&self.session_recalls_table_name)
+            .execute()
+            .await
+            .map_err(|e| OmemError::Storage(format!("failed to open session_recalls table: {e}")))
+    }
+
+    fn session_recalls_schema() -> Arc<Schema> {
+        Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Utf8, false),
+            Field::new("session_id", DataType::Utf8, false),
+            Field::new("memory_id", DataType::Utf8, false),
+            Field::new("recall_type", DataType::Utf8, false),
+            Field::new("query_text", DataType::Utf8, false),
+            Field::new("similarity_score", DataType::Float32, false),
+            Field::new("llm_confidence", DataType::Float32, false),
+            Field::new("tenant_id", DataType::Utf8, false),
+            Field::new("created_at", DataType::Utf8, false),
+        ]))
+    }
+
+    fn session_recall_to_batch(recall: &SessionRecall) -> Result<RecordBatch, OmemError> {
+        RecordBatch::try_new(
+            Self::session_recalls_schema(),
+            vec![
+                Arc::new(StringArray::from(vec![recall.id.as_str()])),
+                Arc::new(StringArray::from(vec![recall.session_id.as_str()])),
+                Arc::new(StringArray::from(vec![recall.memory_id.as_str()])),
+                Arc::new(StringArray::from(vec![recall.recall_type.as_str()])),
+                Arc::new(StringArray::from(vec![recall.query_text.as_str()])),
+                Arc::new(Float32Array::from(vec![recall.similarity_score])),
+                Arc::new(Float32Array::from(vec![recall.llm_confidence])),
+                Arc::new(StringArray::from(vec![recall.tenant_id.as_str()])),
+                Arc::new(StringArray::from(vec![recall.created_at.as_str()])),
+            ],
+        )
+        .map_err(|e| OmemError::Storage(format!("failed to build session_recalls batch: {e}")))
+    }
+
+    fn batch_to_session_recalls(batches: &[RecordBatch]) -> Result<Vec<SessionRecall>, OmemError> {
+        let mut recalls = Vec::new();
+        for batch in batches {
+            for i in 0..batch.num_rows() {
+                recalls.push(Self::row_to_session_recall(batch, i)?);
+            }
+        }
+        Ok(recalls)
+    }
+
+    fn row_to_session_recall(batch: &RecordBatch, row: usize) -> Result<SessionRecall, OmemError> {
+        let get_str = |name: &str| -> Result<String, OmemError> {
+            let col = batch
+                .column_by_name(name)
+                .ok_or_else(|| OmemError::Storage(format!("missing column: {name}")))?;
+            let arr = col
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| OmemError::Storage(format!("column {name} is not Utf8")))?;
+            Ok(arr.value(row).to_string())
+        };
+
+        let get_f32 = |name: &str| -> Result<f32, OmemError> {
+            let col = batch
+                .column_by_name(name)
+                .ok_or_else(|| OmemError::Storage(format!("missing column: {name}")))?;
+            let arr = col
+                .as_any()
+                .downcast_ref::<Float32Array>()
+                .ok_or_else(|| OmemError::Storage(format!("column {name} is not Float32")))?;
+            Ok(arr.value(row))
+        };
+
+        Ok(SessionRecall {
+            id: get_str("id")?,
+            session_id: get_str("session_id")?,
+            memory_id: get_str("memory_id")?,
+            recall_type: get_str("recall_type")?,
+            query_text: get_str("query_text")?,
+            similarity_score: get_f32("similarity_score")?,
+            llm_confidence: get_f32("llm_confidence")?,
+            tenant_id: get_str("tenant_id")?,
+            created_at: get_str("created_at")?,
+        })
+    }
+
+    pub async fn create_session_recall(&self, recall: &SessionRecall) -> Result<(), OmemError> {
+        let batch = Self::session_recall_to_batch(recall)?;
+        let table = self.open_session_recalls_table().await?;
+        let reader = RecordBatchIterator::new(vec![Ok(batch)], Self::session_recalls_schema());
+        table
+            .add(Box::new(reader) as Box<dyn arrow_array::RecordBatchReader + Send>)
+            .execute()
+            .await
+            .map_err(|e| OmemError::Storage(format!("failed to insert session_recall: {e}")))?;
+        Ok(())
+    }
+
+    pub async fn get_session_recall_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<SessionRecall>, OmemError> {
+        let table = self.open_session_recalls_table().await?;
+        let batches: Vec<RecordBatch> = table
+            .query()
+            .only_if(format!("id = '{}'", escape_sql(id)))
+            .limit(1)
+            .execute()
+            .await
+            .map_err(|e| OmemError::Storage(format!("session_recall query failed: {e}")))?
+            .try_collect()
+            .await
+            .map_err(|e| OmemError::Storage(format!("collect failed: {e}")))?;
+
+        let recalls = Self::batch_to_session_recalls(&batches)?;
+        Ok(recalls.into_iter().next())
+    }
+
+    pub async fn list_session_recalls(
+        &self,
+        tenant_id: &str,
+        session_id: Option<&str>,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<SessionRecall>, OmemError> {
+        let table = self.open_session_recalls_table().await?;
+        let batches: Vec<RecordBatch> = table
+            .query()
+            .execute()
+            .await
+            .map_err(|e| OmemError::Storage(format!("list session_recalls query failed: {e}")))?
+            .try_collect()
+            .await
+            .map_err(|e| OmemError::Storage(format!("collect failed: {e}")))?;
+
+        let all = Self::batch_to_session_recalls(&batches)?;
+        let mut filtered: Vec<SessionRecall> = all.into_iter()
+            .filter(|r| r.tenant_id == tenant_id)
+            .collect();
+        if let Some(sid) = session_id {
+            filtered.retain(|r| r.session_id == sid);
+        }
+        filtered.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(filtered.into_iter().skip(offset).take(limit).collect())
     }
 
     fn memory_to_batch(memory: &Memory, vector: Option<&[f32]>) -> Result<RecordBatch, OmemError> {

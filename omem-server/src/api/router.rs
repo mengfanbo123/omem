@@ -94,6 +94,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/vault/verify", post(handlers::verify_vault_password))
         .route("/v1/vault/password", delete(handlers::delete_vault_password))
         .route("/v1/vault/status", get(handlers::get_vault_status))
+        .route("/v1/should-recall", post(handlers::should_recall))
+        .route(
+            "/v1/session-recalls",
+            get(handlers::list_session_recalls).post(handlers::create_session_recall),
+        )
+        .route("/v1/session-recalls/{id}", get(handlers::get_session_recall))
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -102,6 +108,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     let public_routes = Router::new()
         .route("/health", get(health))
         .route("/v1/tenants", post(handlers::create_tenant))
+        .route("/v1/tenants/{id}", get(handlers::get_tenant))
         .route(
             "/v1/connectors/github/webhook",
             post(handlers::github_webhook),

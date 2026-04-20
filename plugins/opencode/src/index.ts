@@ -16,6 +16,7 @@ const OmemPlugin: Plugin = async (input) => {
   let autoCaptureThreshold = 5;
   let ingestMode: "smart" | "raw" = "smart";
   let similarityThreshold = 0.6;
+  let maxRecallResults = 10;
 
   if (process.env.OMEM_API_URL) apiUrl = process.env.OMEM_API_URL;
   if (process.env.OMEM_API_KEY) apiKey = process.env.OMEM_API_KEY;
@@ -39,6 +40,9 @@ const OmemPlugin: Plugin = async (input) => {
     if (typeof globalCfg.similarityThreshold === "number") {
       similarityThreshold = globalCfg.similarityThreshold;
     }
+    if (typeof globalCfg.maxRecallResults === "number") {
+      maxRecallResults = globalCfg.maxRecallResults;
+    }
   } catch {}
 
   try {
@@ -55,6 +59,9 @@ const OmemPlugin: Plugin = async (input) => {
     if (typeof pc?.similarityThreshold === "number") {
       similarityThreshold = pc.similarityThreshold;
     }
+    if (typeof pc?.maxRecallResults === "number") {
+      maxRecallResults = pc.maxRecallResults;
+    }
   } catch {}
 
   const omemClient = new OmemClient(apiUrl, apiKey);
@@ -64,7 +71,7 @@ const OmemPlugin: Plugin = async (input) => {
   const containerTags = [getUserTag(email), getProjectTag(cwd)];
 
   return {
-    "experimental.chat.system.transform": autoRecallHook(omemClient, containerTags, tui, similarityThreshold),
+    "experimental.chat.system.transform": autoRecallHook(omemClient, containerTags, tui, similarityThreshold, maxRecallResults),
     "chat.message": keywordDetectionHook(omemClient, containerTags, autoCaptureThreshold, tui, ingestMode),
     "experimental.session.compacting": compactingHook(omemClient, containerTags, tui, ingestMode),
     tool: buildTools(omemClient, containerTags),

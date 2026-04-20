@@ -63,12 +63,13 @@ impl IngestPipeline {
             .session_id
             .clone()
             .unwrap_or_else(|| Uuid::new_v4().to_string());
-        let agent_id = request.agent_id.clone().unwrap_or_default();
+        let agent_id = request.agent_id.clone().filter(|s| !s.is_empty());
+        let agent_id_str = agent_id.clone().unwrap_or_else(|| "unknown".to_string());
 
         let session_messages: Vec<SessionMessage> = request
             .messages
             .iter()
-            .map(|m| SessionMessage::new(&session_id, &agent_id, &m.role, &m.content, vec![]))
+            .map(|m| SessionMessage::new(&session_id, &agent_id_str, &m.role, &m.content, vec![]))
             .collect();
 
         let stored_count = self.session_store.bulk_create(&session_messages).await?;
@@ -192,7 +193,7 @@ impl IngestPipeline {
                 return;
             }
 
-            match reconciler.reconcile(&admitted_facts, &tenant_id).await {
+            match reconciler.reconcile(&admitted_facts, &tenant_id, agent_id.clone(), Some(session_id.clone())).await {
                 Ok(memories) => {
                     info!(
                         task_id = %bg_task_id,

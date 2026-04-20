@@ -16,6 +16,8 @@ struct ChatRequest {
     temperature: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     response_format: Option<ResponseFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    enable_thinking: Option<bool>,
 }
 
 #[derive(Serialize, Clone)]
@@ -50,6 +52,7 @@ pub struct OpenAICompatLlm {
     url: String,
     model: String,
     response_format: Option<ResponseFormat>,
+    enable_thinking: Option<bool>,
 }
 
 impl OpenAICompatLlm {
@@ -86,6 +89,41 @@ impl OpenAICompatLlm {
                 .llm_response_format
                 .clone()
                 .map(|t| ResponseFormat { format_type: t }),
+            enable_thinking: None,
+        })
+    }
+
+    pub fn new_recall(config: &OmemConfig) -> Result<Self, OmemError> {
+        let base_url = config.recall_llm_base_url.trim_end_matches('/');
+        if base_url.is_empty() {
+            return Err(OmemError::Llm(
+                "recall_llm_base_url is required for openai-compatible provider".to_string(),
+            ));
+        }
+
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        if !config.recall_llm_api_key.is_empty() {
+            let auth_value = format!("Bearer {}", config.recall_llm_api_key);
+            headers.insert(
+                AUTHORIZATION,
+                HeaderValue::from_str(&auth_value)
+                    .map_err(|e| OmemError::Llm(format!("invalid api key header: {e}")))?,
+            );
+        }
+
+        let client = reqwest::Client::builder()
+            .timeout(TIMEOUT)
+            .default_headers(headers)
+            .build()
+            .map_err(|e| OmemError::Llm(format!("failed to build http client: {e}")))?;
+
+        Ok(Self {
+            client,
+            url: format!("{base_url}/v1/chat/completions"),
+            model: config.recall_llm_model.clone(),
+            response_format: None,
+            enable_thinking: Some(false),
         })
     }
 
@@ -104,6 +142,7 @@ impl OpenAICompatLlm {
             ],
             temperature: 0.1,
             response_format: self.response_format.clone(),
+            enable_thinking: self.enable_thinking,
         }
     }
 }

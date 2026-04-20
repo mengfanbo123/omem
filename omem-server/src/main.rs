@@ -5,7 +5,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 use omem_server::api::{build_router, AppState};
 use omem_server::config::OmemConfig;
 use omem_server::embed::{create_embed_service, EmbedService};
-use omem_server::llm::{create_llm_service, LlmService};
+use omem_server::llm::{create_llm_service, create_recall_llm_service, LlmService};
 use omem_server::store::{SpaceStore, StoreManager, TenantStore};
 
 fn init_tracing(config: &OmemConfig) {
@@ -71,12 +71,19 @@ async fn main() {
             .expect("failed to create LLM service"),
     );
 
+    let recall_llm: Arc<dyn LlmService> = Arc::from(
+        create_recall_llm_service(&config)
+            .await
+            .expect("failed to create recall LLM service"),
+    );
+
     let state = Arc::new(AppState {
         store_manager,
         tenant_store,
         space_store,
         embed,
         llm,
+        recall_llm,
         config: config.clone(),
         import_semaphore: Arc::new(tokio::sync::Semaphore::new(3)),
         reconcile_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),

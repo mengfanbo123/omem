@@ -285,12 +285,14 @@ export class OmemClient {
     last_query_text: string | undefined,
     session_id: string,
     similarity_threshold?: number,
+    max_results?: number,
   ): Promise<ShouldRecallResponse | null> {
     const res = await this.post<ShouldRecallResponse>("/v1/should-recall", {
       query_text,
       last_query_text,
       session_id,
       similarity_threshold,
+      max_results,
     }, 20_000);
     return res;
   }

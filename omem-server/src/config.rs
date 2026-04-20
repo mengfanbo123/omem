@@ -15,6 +15,10 @@ pub struct OmemConfig {
     pub embed_api_key: String,
     pub embed_base_url: String,
     pub embed_model: String,
+    pub recall_llm_provider: String,
+    pub recall_llm_api_key: String,
+    pub recall_llm_model: String,
+    pub recall_llm_base_url: String,
 }
 
 impl Default for OmemConfig {
@@ -33,6 +37,10 @@ impl Default for OmemConfig {
             embed_api_key: String::new(),
             embed_base_url: String::new(),
             embed_model: String::new(),
+            recall_llm_provider: String::new(),
+            recall_llm_api_key: String::new(),
+            recall_llm_model: String::new(),
+            recall_llm_base_url: String::new(),
         }
     }
 }
@@ -59,6 +67,10 @@ impl OmemConfig {
             embed_api_key: env::var("OMEM_EMBED_API_KEY").unwrap_or(defaults.embed_api_key),
             embed_base_url: env::var("OMEM_EMBED_BASE_URL").unwrap_or(defaults.embed_base_url),
             embed_model: env::var("OMEM_EMBED_MODEL").unwrap_or(defaults.embed_model),
+            recall_llm_provider: env::var("OMEM_RECALL_LLM_PROVIDER").unwrap_or(defaults.recall_llm_provider),
+            recall_llm_api_key: env::var("OMEM_RECALL_LLM_API_KEY").unwrap_or(defaults.recall_llm_api_key),
+            recall_llm_model: env::var("OMEM_RECALL_LLM_MODEL").unwrap_or(defaults.recall_llm_model),
+            recall_llm_base_url: env::var("OMEM_RECALL_LLM_BASE_URL").unwrap_or(defaults.recall_llm_base_url),
         }
     }
 

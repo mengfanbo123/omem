@@ -33,6 +33,13 @@ pub async fn create_llm_service(config: &OmemConfig) -> Result<Box<dyn LlmServic
     }
 }
 
+pub async fn create_recall_llm_service(config: &OmemConfig) -> Result<Box<dyn LlmService>, OmemError> {
+    match config.recall_llm_provider.as_str() {
+        "openai-compatible" => Ok(Box::new(OpenAICompatLlm::new_recall(config)?)),
+        _ => Ok(Box::new(NoopLlm)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
