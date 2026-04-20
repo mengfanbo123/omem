@@ -17,6 +17,7 @@ pub struct ShouldRecallRequest {
     pub query_text: String,
     pub last_query_text: Option<String>,
     pub session_id: String,
+    pub similarity_threshold: Option<f32>,
 }
 
 #[derive(Serialize)]
@@ -150,7 +151,10 @@ pub async fn should_recall(
         .get_store(&personal_space_id(&auth.tenant_id))
         .await?;
 
-    const MIN_SCORE: f32 = 0.3;
+    let min_score = body.similarity_threshold.unwrap_or(0.6);
+    if min_score < 0.0 || min_score > 1.0 {
+        min_score = 0.6;
+    }
 
     let is_zero_vector = query_vector.as_ref().map_or(true, |v| v.iter().all(|&x| x == 0.0));
 
@@ -162,7 +166,7 @@ pub async fn should_recall(
     } else {
         let search_vec = query_vector.unwrap();
         store
-            .vector_search(&search_vec, 5, MIN_SCORE, None, None)
+            .vector_search(&search_vec, 5, min_score, None, None)
             .await
             .unwrap_or_default()
     };

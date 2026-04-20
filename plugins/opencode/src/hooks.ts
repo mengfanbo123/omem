@@ -117,7 +117,7 @@ function buildRecallToast(results: SearchResult[]): { title: string; message: st
   };
 }
 
-export function autoRecallHook(client: OmemClient, containerTags: string[], tui: any) {
+export function autoRecallHook(client: OmemClient, containerTags: string[], tui: any, similarityThreshold: number = 0.6) {
   return async (
     input: { sessionID?: string; model: Model },
     output: { system: string[] },
@@ -130,7 +130,18 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
       const query_text = userMessages[userMessages.length - 1]?.content || firstMessages.get(input.sessionID) || "";
       const last_query_text = userMessages.length >= 2 ? userMessages[userMessages.length - 2].content : undefined;
 
-      const shouldRecallRes = await client.shouldRecall(query_text, last_query_text, input.sessionID);
+      const shouldRecallRes = await client.shouldRecall(query_text, last_query_text, input.sessionID, similarityThreshold);
+
+      const profile = await client.getProfile();
+      if (profile) {
+        const profileBlock = [
+          "<omem-profile>",
+          JSON.stringify(profile, null, 2),
+          "</omem-profile>",
+        ].join("\n");
+        output.system.push(profileBlock);
+      }
+
       if (!shouldRecallRes || !shouldRecallRes.should_recall) {
         return;
       }
@@ -167,16 +178,6 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
 
       const toast = buildRecallToast(newResults);
       showToast(tui, toast.title, toast.message, toast.variant);
-
-      const profile = await client.getProfile();
-      if (profile) {
-        const profileBlock = [
-          "<omem-profile>",
-          JSON.stringify(profile, null, 2),
-          "</omem-profile>",
-        ].join("\n");
-        output.system.push(profileBlock);
-      }
 
       if (keywordDetectedSessions.has(input.sessionID)) {
         output.system.push(KEYWORD_NUDGE);
