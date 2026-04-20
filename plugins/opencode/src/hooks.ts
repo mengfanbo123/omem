@@ -16,9 +16,28 @@ function showToast(tui: any, title: string, message: string, variant: string = "
 }
 
 const keywordDetectedSessions = new Set<string>();
-const injectedSessions = new Set<string>();
+const injectedMemoryIds = new Map<string, Set<string>>();
 const firstMessages = new Map<string, string>();
 const sessionMessages = new Map<string, Array<{ role: string; content: string }>>();
+
+function extractMemoryIds(result: unknown): string[] {
+  if (!result) return [];
+  if (Array.isArray(result)) {
+    return (result as Array<{ id?: string }>).map((m) => m.id).filter(Boolean) as string[];
+  }
+  if (typeof result === "object" && result !== null) {
+    const r = result as Record<string, unknown>;
+    if (Array.isArray(r.memories)) {
+      return (r.memories as Array<{ id?: string }>).map((m) => m.id).filter(Boolean) as string[];
+    }
+    if (Array.isArray(r.results)) {
+      return (r.results as Array<{ id?: string; memory?: { id?: string } }>)
+        .map((m) => m.id ?? m.memory?.id)
+        .filter(Boolean) as string[];
+    }
+  }
+  return [];
+}
 
 function formatRelativeAge(isoDate: string): string {
   const diffMs = Date.now() - new Date(isoDate).getTime();
@@ -103,24 +122,51 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
     input: { sessionID?: string; model: Model },
     output: { system: string[] },
   ) => {
-    if (!input.sessionID || injectedSessions.has(input.sessionID)) return;
-    injectedSessions.add(input.sessionID);
+    if (!input.sessionID) return;
 
     try {
-      const query = firstMessages.get(input.sessionID) || "*";
-      const results = await client.searchMemories(
-        query,
-        MAX_RECALL_RESULTS,
-        undefined,
-        containerTags,
-      );
-      const toast = buildRecallToast(results);
-      showToast(tui, toast.title, toast.message, toast.variant);
+      const messages = sessionMessages.get(input.sessionID) ?? [];
+      const userMessages = messages.filter((m) => m.role === "user");
+      const query_text = userMessages[userMessages.length - 1]?.content || firstMessages.get(input.sessionID) || "";
+      const last_query_text = userMessages.length >= 2 ? userMessages[userMessages.length - 2].content : undefined;
 
-      const block = buildContextBlock(results);
+      const shouldRecallRes = await client.shouldRecall(query_text, last_query_text, input.sessionID);
+      if (!shouldRecallRes || !shouldRecallRes.should_recall) {
+        return;
+      }
+
+      const results = shouldRecallRes.memories ?? [];
+
+      const existingIds = injectedMemoryIds.get(input.sessionID) ?? new Set<string>();
+      const newResults = results.filter((r) => !existingIds.has(r.memory.id));
+      if (newResults.length === 0) {
+        return;
+      }
+
+      const block = buildContextBlock(newResults);
       if (block) {
         output.system.push(block);
       }
+
+      const newIds = newResults.map((r) => r.memory.id);
+      injectedMemoryIds.set(input.sessionID, new Set([...existingIds, ...newIds]));
+
+      const recordResult = await client.recordSessionRecall(
+        input.sessionID,
+        newIds,
+        "auto",
+        query_text,
+        shouldRecallRes?.similarity_score,
+        shouldRecallRes?.confidence,
+      );
+      if (recordResult) {
+        showToast(tui, "📦 Recall Recorded", `${newIds.length} memory(s) saved to session history`, "success");
+      } else {
+        showToast(tui, "🔴 Recall Failed", `Failed to save session recall · check API connection`, "error");
+      }
+
+      const toast = buildRecallToast(newResults);
+      showToast(tui, toast.title, toast.message, toast.variant);
 
       const profile = await client.getProfile();
       if (profile) {
@@ -148,9 +194,11 @@ export function keywordDetectionHook(client: OmemClient, containerTags: string[]
     output: { message: UserMessage; parts: Part[] },
   ) => {
     const textContent = output.parts
-      .filter((p): p is Extract<Part, { type: "text" }> => p.type === "text")
-      .map((p) => p.text)
-      .join(" ");
+      .filter((p): p is any => p.type === "text")
+      .map((p) => (p as any).text || (p as any).content || "")
+      .join(" ")
+      || (output.message as any).content
+      || "";
 
     if (!firstMessages.has(input.sessionID)) {
       firstMessages.set(input.sessionID, textContent);
@@ -180,6 +228,22 @@ export function keywordDetectionHook(client: OmemClient, containerTags: string[]
           showToast(tui, "🔴 Capture Failed", `Memory capture blocked · check API Key and spiritual connection`, "error");
         } else {
           showToast(tui, "🧠 Memory Sealed", `${messages.length} dialogues captured · entrusted to the heavens for refinement`, "success");
+          const memoryIds = extractMemoryIds(result);
+          if (memoryIds.length > 0) {
+            const recordResult = await client.recordSessionRecall(
+              input.sessionID,
+              memoryIds,
+              "auto",
+              firstMessages.get(input.sessionID) || "",
+              0,
+              0,
+            );
+            if (recordResult) {
+              showToast(tui, "📦 Capture Recorded", `${memoryIds.length} memory(s) saved to session history`, "success");
+            } else {
+              showToast(tui, "🔴 Capture Record Failed", `Failed to save capture record · check API connection`, "error");
+            }
+          }
           sessionMessages.delete(input.sessionID);
         }
       } catch {

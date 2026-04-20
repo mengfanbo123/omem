@@ -40,6 +40,26 @@ export interface ListResponse {
   offset: number;
 }
 
+export interface ShouldRecallResponse {
+  should_recall: boolean;
+  query?: string;
+  reason?: string;
+  similarity_score?: number;
+  confidence?: number;
+  memories?: SearchResult[];
+}
+
+export interface SessionRecallRecord {
+  session_id: string;
+  memory_ids: string[];
+  recall_type: string;
+  created_at: string;
+}
+
+export interface SessionRecallListResponse {
+  recalls: SessionRecallRecord[];
+}
+
 export interface MemoryDto {
   id: string;
   content: string;
@@ -66,12 +86,13 @@ export class OmemClient {
   private async request<T>(
     path: string,
     init: RequestInit = {},
+    timeoutMs?: number,
   ): Promise<T | null> {
     const url = `${this.baseUrl}${path}`;
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(),
-      DEFAULT_TIMEOUT_MS,
+      timeoutMs ?? DEFAULT_TIMEOUT_MS,
     );
 
     try {
@@ -107,11 +128,11 @@ export class OmemClient {
     }
   }
 
-  private post<T>(path: string, body: unknown): Promise<T | null> {
+  private post<T>(path: string, body: unknown, timeoutMs?: number): Promise<T | null> {
     return this.request<T>(path, {
       method: "POST",
       body: JSON.stringify(body),
-    });
+    }, timeoutMs);
   }
 
   private put<T>(path: string, body: unknown): Promise<T | null> {
@@ -146,6 +167,8 @@ export class OmemClient {
     if (tags && tags.length > 0) params.set("tags", tags.join(","));
     const res = await this.request<SearchResponse>(
       `/v1/memories/search?${params}`,
+      {},
+      20_000,
     );
     return res?.results ?? [];
   }
@@ -255,5 +278,48 @@ export class OmemClient {
       `/v1/memories/${encodeURIComponent(memoryId)}/reshare`,
       { target_space: targetSpace },
     );
+  }
+
+  async shouldRecall(
+    query_text: string,
+    last_query_text: string | undefined,
+    session_id: string,
+  ): Promise<ShouldRecallResponse | null> {
+    const res = await this.post<ShouldRecallResponse>("/v1/should-recall", {
+      query_text,
+      last_query_text,
+      session_id,
+    }, 20_000);
+    return res;
+  }
+
+  async recordSessionRecall(
+    session_id: string,
+    memory_ids: string[],
+    recall_type: string,
+    query_text?: string,
+    similarity_score?: number,
+    llm_confidence?: number,
+  ): Promise<unknown | null> {
+    const body = {
+      session_id,
+      memory_ids,
+      recall_type,
+      query_text: query_text ?? "",
+      similarity_score: similarity_score ?? 0,
+      llm_confidence: llm_confidence ?? 0,
+    };
+    const res = await this.post("/v1/session-recalls", body, 20_000);
+    return res;
+  }
+
+  async listSessionRecalls(
+    session_id: string,
+  ): Promise<SessionRecallRecord[]> {
+    const params = new URLSearchParams({ session_id });
+    const res = await this.request<SessionRecallListResponse>(
+      `/v1/session-recalls?${params}`,
+    );
+    return res?.recalls ?? [];
   }
 }
