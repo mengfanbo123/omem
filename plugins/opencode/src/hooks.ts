@@ -150,7 +150,7 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
 
       if (!shouldRecallRes.should_recall) {
         if (profileInjected) {
-          showToast(tui, "👤 Profile Injected", "User profile loaded · no memory recall needed", "info");
+          showToast(tui, "✨ Profile Injected", "User profile loaded · no memory recall needed", "success");
         }
         return;
       }
@@ -161,7 +161,7 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
       const newResults = results.filter((r) => !existingIds.has(r.memory.id));
       if (newResults.length === 0) {
         if (profileInjected) {
-          showToast(tui, "👤 Profile Injected", "User profile loaded · all memories already injected", "info");
+          showToast(tui, "✨ Profile Injected", "User profile loaded · all memories already injected", "success");
         }
         return;
       }
