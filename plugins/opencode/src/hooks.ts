@@ -18,6 +18,7 @@ const keywordDetectedSessions = new Set<string>();
 const injectedMemoryIds = new Map<string, Set<string>>();
 const firstMessages = new Map<string, string>();
 const sessionMessages = new Map<string, Array<{ role: string; content: string }>>();
+const profileInjectedSessions = new Set<string>();
 
 function extractMemoryIds(result: unknown): string[] {
   if (!result) return [];
@@ -139,7 +140,7 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
       const profile = await client.getProfile();
       let profileInjected = false;
       let profileCountText = "";
-      if (profile) {
+      if (profile && !profileInjectedSessions.has(input.sessionID)) {
         const profileBlock = [
           "<omem-profile>",
           JSON.stringify(profile, null, 2),
@@ -147,6 +148,7 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
         ].join("\n");
         output.system.push(profileBlock);
         profileInjected = true;
+        profileInjectedSessions.add(input.sessionID);
         const p = profile as any;
         const dynamicCount = p?.dynamic_context?.length ?? 0;
         const staticCount = p?.static_facts?.length ?? 0;
