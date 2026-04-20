@@ -1,6 +1,6 @@
 {
   "name": "@mingxy/omem",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "ourmem persistent memory plugin for OpenCode — auto-recall, auto-capture, 9 memory tools",
   "type": "module",
   "main": "src/index.ts",

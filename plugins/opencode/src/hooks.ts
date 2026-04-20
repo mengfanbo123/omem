@@ -131,7 +131,13 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
 
       const shouldRecallRes = await client.shouldRecall(query_text, last_query_text, input.sessionID, similarityThreshold, maxRecallResults);
 
+      if (!shouldRecallRes) {
+        showToast(tui, "🧠 Omem Service Unavailable", "Unable to reach memory API · check connection", "error");
+        return;
+      }
+
       const profile = await client.getProfile();
+      let profileInjected = false;
       if (profile) {
         const profileBlock = [
           "<omem-profile>",
@@ -139,9 +145,24 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
           "</omem-profile>",
         ].join("\n");
         output.system.push(profileBlock);
+        profileInjected = true;
+
+        try {
+          await client.recordSessionRecall(
+            input.sessionID,
+            ["profile"],
+            "auto",
+            query_text,
+            0,
+            0,
+          );
+        } catch {}
       }
 
-      if (!shouldRecallRes || !shouldRecallRes.should_recall) {
+      if (!shouldRecallRes.should_recall) {
+        if (profileInjected) {
+          showToast(tui, "👤 Profile Injected", "User profile loaded · no memory recall needed", "info");
+        }
         return;
       }
 
@@ -150,6 +171,9 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
       const existingIds = injectedMemoryIds.get(input.sessionID) ?? new Set<string>();
       const newResults = results.filter((r) => !existingIds.has(r.memory.id));
       if (newResults.length === 0) {
+        if (profileInjected) {
+          showToast(tui, "👤 Profile Injected", "User profile loaded · all memories already injected", "info");
+        }
         return;
       }
 
@@ -169,10 +193,20 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
         shouldRecallRes?.similarity_score,
         shouldRecallRes?.confidence,
       );
+
+      const dynamicCount = newResults.filter((r) => r.memory.memory_type === "fact" || r.memory.memory_type === "event").length;
+      const staticCount = newResults.filter((r) => r.memory.memory_type === "pinned" || r.memory.memory_type === "preference").length;
+      const otherCount = newResults.length - dynamicCount - staticCount;
+
+      let countMsg = "";
+      if (dynamicCount > 0) countMsg += `Dynamic(${dynamicCount}) `;
+      if (staticCount > 0) countMsg += `Static(${staticCount}) `;
+      if (otherCount > 0) countMsg += `Other(${otherCount}) `;
+
       if (recordResult) {
-        showToast(tui, "📦 Recall Recorded", `${newIds.length} memory(s) saved to session history`, "success");
+        showToast(tui, "📦 Recall Recorded", `${newIds.length} memory(s) saved · ${countMsg.trim()}`, "success");
       } else {
-        showToast(tui, "🔴 Recall Failed", `Failed to save session recall · check API connection`, "error");
+        showToast(tui, "🔴 Recall Record Failed", `Memories injected but save failed · ${countMsg.trim()}`, "warning");
       }
 
       const toast = buildRecallToast(newResults);
@@ -182,8 +216,13 @@ export function autoRecallHook(client: OmemClient, containerTags: string[], tui:
         output.system.push(KEYWORD_NUDGE);
         keywordDetectedSessions.delete(input.sessionID);
       }
-    } catch {
-      showToast(tui, "🧠 Memory Recall", "Spiritual pulse disturbance · memory recall blocked", "warning");
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes("fetch") || errMsg.includes("network") || errMsg.includes("timeout")) {
+        showToast(tui, "🧠 Omem Service Unavailable", "Network error · check API connection", "error");
+      } else {
+        showToast(tui, "🧠 Memory Recall Error", errMsg.substring(0, 100), "error");
+      }
     }
   };
 }

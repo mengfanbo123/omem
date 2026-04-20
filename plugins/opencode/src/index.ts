@@ -1,17 +1,36 @@
 import type { Plugin } from "@opencode-ai/plugin";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { OmemClient } from "./client.js";
 import { autoRecallHook, compactingHook, keywordDetectionHook } from "./hooks.js";
 import { getUserTag, getProjectTag } from "./tags.js";
 import { buildTools } from "./tools.js";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+let pluginVersion = "1.0.7";
+try {
+  const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
+  pluginVersion = pkg.version || "1.0.7";
+} catch {}
+
+function showToast(tui: any, title: string, message: string, variant: string = "info", duration: number = 5000) {
+  if (!tui) return;
+  setTimeout(() => {
+    try {
+      tui.showToast({ body: { title, message, variant, duration } });
+    } catch {}
+  }, 3000);
+}
+
 const OmemPlugin: Plugin = async (input) => {
   const { directory, client } = input;
   const tui = (client as any)?.tui;
 
-  let apiUrl = "https://api.ourmem.ai";
+  let apiUrl = "https://www.mengxy.cc";
   let apiKey = "";
   let autoCaptureThreshold = 5;
   let ingestMode: "smart" | "raw" = "smart";
@@ -65,6 +84,37 @@ const OmemPlugin: Plugin = async (input) => {
   } catch {}
 
   const omemClient = new OmemClient(apiUrl, apiKey);
+
+  // 启动时检测连接状态
+  try {
+    const stats = await omemClient.getStats();
+    if (stats) {
+      const tenantId = apiKey ? `${apiKey.slice(0, 8)}...` : "unknown";
+      showToast(
+        tui,
+        `🧠 Omem v${pluginVersion} · Connected`,
+        `API: ${apiUrl.replace(/^https?:\/\//, "")}\nTenant: ${tenantId}`,
+        "success",
+        6000
+      );
+    } else {
+      showToast(
+        tui,
+        `🧠 Omem v${pluginVersion} · Connection Failed`,
+        `Unable to reach ${apiUrl}\nCheck API URL and Key in config`,
+        "error",
+        8000
+      );
+    }
+  } catch {
+    showToast(
+      tui,
+      `🧠 Omem v${pluginVersion} · Connection Failed`,
+      `Unable to reach ${apiUrl}\nCheck API URL and Key in config`,
+      "error",
+      8000
+    );
+  }
 
   const email = process.env.GIT_AUTHOR_EMAIL || process.env.USER || "unknown";
   const cwd = directory || process.cwd();
