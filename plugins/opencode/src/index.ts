@@ -93,7 +93,7 @@ const OmemPlugin: Plugin = async (input) => {
       showToast(
         tui,
         `🧠 Omem v${pluginVersion} · Connected`,
-        `API: ${apiUrl.replace(/^https?:\/\//, "")}\nTenant: ${tenantId}`,
+        `${apiUrl.replace(/^https?:\/\//, "")} · ${tenantId}`,
         "success",
         6000
       );
@@ -101,7 +101,7 @@ const OmemPlugin: Plugin = async (input) => {
       showToast(
         tui,
         `🧠 Omem v${pluginVersion} · Connection Failed`,
-        `Unable to reach ${apiUrl}\nCheck API URL and Key in config`,
+        `Unable to reach ${apiUrl} · Check API URL and Key`,
         "error",
         8000
       );
