@@ -1,17 +1,15 @@
 import type { Model, UserMessage, Part } from "@opencode-ai/sdk";
 import type { OmemClient, SearchResult } from "./client.js";
+import type { OmemPluginConfig } from "./config.js";
 import { detectKeyword, KEYWORD_NUDGE } from "./keywords.js";
 
-const MAX_CONTENT_LENGTH = 500;
-const TOAST_DELAY_MS = 7000;
-
-function showToast(tui: any, title: string, message: string, variant: string = "info") {
+function showToast(tui: any, title: string, message: string, variant: string = "info", delayMs: number = 7000) {
   if (!tui) return;
   setTimeout(() => {
     try {
       tui.showToast({ body: { title, message, variant, duration: 5000 } });
     } catch {}
-  }, TOAST_DELAY_MS);
+  }, delayMs);
 }
 
 const keywordDetectedSessions = new Set<string>();
@@ -72,7 +70,7 @@ function categorize(results: SearchResult[]): Map<string, SearchResult[]> {
   return groups;
 }
 
-function buildContextBlock(results: SearchResult[]): string {
+function buildContextBlock(results: SearchResult[], maxContentLength: number = 500): string {
   if (results.length === 0) return "";
 
   const grouped = categorize(results);
@@ -82,7 +80,7 @@ function buildContextBlock(results: SearchResult[]): string {
     const lines = items.map((r) => {
       const tags = r.memory.tags.length > 0 ? ` [${r.memory.tags.join(", ")}]` : "";
       const age = formatRelativeAge(r.memory.created_at);
-      const content = truncate(r.memory.content, MAX_CONTENT_LENGTH);
+      const content = truncate(r.memory.content, maxContentLength);
       return `  - (${age}${tags}) ${content}`;
     });
     sections.push(`[${label}]\n${lines.join("\n")}`);
@@ -98,7 +96,12 @@ function buildContextBlock(results: SearchResult[]): string {
   ].join("\n");
 }
 
-export function autoRecallHook(client: OmemClient, _containerTags: string[], tui: any, similarityThreshold: number = 0.6, maxRecallResults: number = 10) {
+export function autoRecallHook(client: OmemClient, _containerTags: string[], tui: any, config: Partial<OmemPluginConfig> = {}) {
+  const similarityThreshold = config.similarityThreshold ?? 0.6;
+  const maxRecallResults = config.maxRecallResults ?? 10;
+  const maxContentLength = config.maxContentLength ?? 500;
+  const toastDelayMs = config.toastDelayMs ?? 7000;
+
   return async (
     input: { sessionID?: string; model: Model },
     output: { system: string[] },
@@ -114,7 +117,7 @@ export function autoRecallHook(client: OmemClient, _containerTags: string[], tui
       const shouldRecallRes = await client.shouldRecall(query_text, last_query_text, input.sessionID, similarityThreshold, maxRecallResults);
 
       if (!shouldRecallRes) {
-        showToast(tui, "🧠 Omem Service Unavailable", "Unable to reach memory API · check connection", "error");
+        showToast(tui, "🧠 Omem Service Unavailable", "Unable to reach memory API · check connection", "error", toastDelayMs);
         return;
       }
 
@@ -138,7 +141,7 @@ export function autoRecallHook(client: OmemClient, _containerTags: string[], tui
 
       if (!shouldRecallRes.should_recall) {
         if (profileInjected) {
-          showToast(tui, "👨 Profile Injected", `${profileCountText} · no memory recall needed`, "success");
+          showToast(tui, "👨 Profile Injected", `${profileCountText} · no memory recall needed`, "success", toastDelayMs);
         }
         return;
       }
@@ -149,12 +152,12 @@ export function autoRecallHook(client: OmemClient, _containerTags: string[], tui
       const newResults = results.filter((r) => !existingIds.has(r.memory.id));
       if (newResults.length === 0) {
         if (profileInjected) {
-          showToast(tui, "👨 Profile Injected", `${profileCountText} · all memories already injected`, "success");
+          showToast(tui, "👨 Profile Injected", `${profileCountText} · all memories already injected`, "success", toastDelayMs);
         }
         return;
       }
 
-      const block = buildContextBlock(newResults);
+      const block = buildContextBlock(newResults, maxContentLength);
       if (block) {
         output.system.push(block);
       }
@@ -191,18 +194,20 @@ export function autoRecallHook(client: OmemClient, _containerTags: string[], tui
           `🧠 Context Injected · ${newResults.length} fragments`,
           `Profile: ${profileCountText} · Memories: ${memCountMsg.trim()}${catSummary ? ` · ${catSummary}` : ""}`,
           "success",
+          toastDelayMs,
         );
       } else {
         showToast(
           tui,
           `🧠 Memory Recall · ${newResults.length} fragments`,
           `${memCountMsg.trim()}${catSummary ? ` · ${catSummary}` : ""}`,
-          "info",
+          "success",
+          toastDelayMs,
         );
       }
 
       if (!recordResult) {
-        showToast(tui, "🔴 Recall Record Failed", `Memories injected but save failed · check API connection`, "warning");
+        showToast(tui, "🔴 Recall Record Failed", `Memories injected but save failed · check API connection`, "warning", toastDelayMs);
       }
 
       if (keywordDetectedSessions.has(input.sessionID)) {
@@ -211,7 +216,17 @@ export function autoRecallHook(client: OmemClient, _containerTags: string[], tui
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      if (errMsg.includes("fetch") || errMsg.includes("network") || errMsg.includes("timeout")) {
+      if (errMsg.includes("[omem]")) {
+        // Server returned error (500, etc.) with details
+        const cleanMsg = errMsg.replace(/^\[omem\]\s*/, "");
+        if (cleanMsg.startsWith("500")) {
+          showToast(tui, "🧠 Omem Server Error", cleanMsg.substring(0, 200), "error");
+        } else if (cleanMsg.includes("timed out")) {
+          showToast(tui, "🧠 Omem Service Timeout", cleanMsg.substring(0, 100), "error");
+        } else {
+          showToast(tui, "🧠 Omem Error", cleanMsg.substring(0, 150), "error");
+        }
+      } else if (errMsg.includes("fetch") || errMsg.includes("network")) {
         showToast(tui, "🧠 Omem Service Unavailable", "Network error · check API connection", "error");
       } else {
         showToast(tui, "🧠 Memory Recall Error", errMsg.substring(0, 100), "error");

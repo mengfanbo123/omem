@@ -800,15 +800,22 @@ impl LanceStore {
             .map_err(|e| OmemError::Storage(format!("collect failed: {e}")))?;
 
         let mut results = Vec::new();
+        let mut raw_count = 0;
+        let mut scores_debug = Vec::new();
         for batch in &batches {
             for i in 0..batch.num_rows() {
+                raw_count += 1;
                 let score = Self::extract_score(batch, i);
+                if scores_debug.len() < 5 {
+                    scores_debug.push(score);
+                }
                 if score >= min_score {
                     let memory = Self::row_to_memory(batch, i)?;
                     results.push((memory, score));
                 }
             }
         }
+        tracing::info!(raw_count = raw_count, filtered_count = results.len(), min_score = min_score, ?scores_debug, "vector_search_filter");
         Ok(results)
     }
 

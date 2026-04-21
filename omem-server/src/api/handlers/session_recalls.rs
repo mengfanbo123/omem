@@ -10,7 +10,19 @@ use crate::domain::memory::Memory;
 use crate::domain::tenant::AuthInfo;
 use crate::store::lancedb::SessionRecall;
 
-const SHOULD_RECALL_SYSTEM_PROMPT: &str = r#"你是一个记忆召回助手。用户有一个个人知识库，保存了过往笔记、项目经验、技术方案、偏好设置等记忆。你的任务是判断用户当前的问题是否需要从知识库中检索相关记忆来辅助回答。如果是关于用户个人知识、项目细节、过往经验的问题，回答 yes。如果是通用常识、简单问候等无需检索的问题，回答 no。只回答 yes 或 no。"#;
+const SHOULD_RECALL_SYSTEM_PROMPT: &str = r#"你是一个记忆召回助手。用户有一个个人知识库，保存了过往笔记、项目经验、技术方案、偏好设置、私密记录等记忆。你的任务是判断用户当前的问题是否需要从知识库中检索相关记忆来辅助回答。
+
+回答 yes 的情况：
+- 涉及用户个人知识、项目细节、过往经验
+- 涉及私密内容、个人情感、亲密关系、家庭事务
+- 涉及密码、配置、账号等敏感信息
+- 任何可能需要参考历史记录的问题
+
+回答 no 的情况：
+- 通用常识、简单问候
+- 与历史记录完全无关的闲聊
+
+注意：知识库中包括私密记忆，涉及私密内容的问题同样需要召回。只回答 yes 或 no。"#;
 
 #[derive(Deserialize)]
 pub struct ShouldRecallRequest {
@@ -124,22 +136,16 @@ pub async fn should_recall(
         body.query_text
     );
 
-    let _needs_recall = match state.recall_llm.complete_text(system, &user).await {
+    let (llm_yes, llm_reason) = match state.recall_llm.complete_text(system, &user).await {
         Ok(llm_response) => {
-            let needs = llm_response.trim().to_lowercase().starts_with("yes");
-            if !needs {
-                return Ok(Json(ShouldRecallResponse {
-                    should_recall: false,
-                    reason: Some("llm_decided_no".to_string()),
-                    memories: None,
-                    confidence: None,
-                    similarity_score,
-                }));
-            }
-            true
+            let trimmed = llm_response.trim().to_lowercase();
+            let yes = trimmed.starts_with("yes");
+            tracing::info!(query = %body.query_text, llm_response = %trimmed, llm_yes = yes, "recall_llm_response");
+            (yes, if yes { "llm_yes" } else { "llm_no" })
         }
-        Err(_) => {
-            true
+        Err(e) => {
+            tracing::warn!(query = %body.query_text, error = %e, "recall_llm_error_fallback");
+            (true, "llm_error_fallback")
         }
     };
 
@@ -155,9 +161,9 @@ pub async fn should_recall(
         .get_store(&personal_space_id(&auth.tenant_id))
         .await?;
 
-    let mut min_score = body.similarity_threshold.unwrap_or(0.6);
+    let mut min_score = body.similarity_threshold.unwrap_or(0.4);
     if min_score < 0.0 || min_score > 1.0 {
-        min_score = 0.6;
+        min_score = 0.4;
     }
 
     let mut max_results = body.max_results.unwrap_or(5);
@@ -167,15 +173,19 @@ pub async fn should_recall(
 
     let is_zero_vector = query_vector.as_ref().map_or(true, |v| v.iter().all(|&x| x == 0.0));
 
+    let effective_min_score = if llm_yes { min_score } else { min_score * 0.5 };
+
     let results = if is_zero_vector {
+        tracing::info!(query = %body.query_text, "using_fts_search_zero_vector");
         store
             .fts_search(&body.query_text, max_results, None, None)
             .await
             .unwrap_or_default()
     } else {
         let search_vec = query_vector.unwrap();
+        tracing::info!(query = %body.query_text, min_score = effective_min_score, max_results = max_results, "using_vector_search");
         store
-            .vector_search(&search_vec, max_results, min_score, None, None)
+            .vector_search(&search_vec, max_results, effective_min_score, None, None)
             .await
             .unwrap_or_default()
     };
@@ -184,6 +194,8 @@ pub async fn should_recall(
         .into_iter()
         .map(|(memory, score)| MemoryWithScore { memory, score })
         .collect();
+
+    tracing::info!(query = %body.query_text, result_count = memories.len(), should_recall = !memories.is_empty(), "should_recall_result");
 
     if memories.is_empty() {
         return Ok(Json(ShouldRecallResponse {

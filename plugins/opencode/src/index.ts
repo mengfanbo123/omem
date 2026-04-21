@@ -2,11 +2,12 @@ import type { Plugin } from "@opencode-ai/plugin";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { homedir } from "node:os";
 import { OmemClient } from "./client.js";
 import { autoRecallHook, compactingHook, keywordDetectionHook } from "./hooks.js";
 import { getUserTag, getProjectTag } from "./tags.js";
 import { buildTools } from "./tools.js";
+import { logInfo, logError } from "./logger.js";
+import { loadPluginConfig } from "./config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -32,90 +33,50 @@ const OmemPlugin: Plugin = async (input) => {
   const { directory, client } = input;
   const tui = (client as any)?.tui;
 
-  let apiUrl = "https://www.mengxy.cc";
-  let apiKey = "";
-  let autoCaptureThreshold = 5;
-  let ingestMode: "smart" | "raw" = "smart";
-  let similarityThreshold = 0.6;
-  let maxRecallResults = 10;
-
-  if (process.env.OMEM_API_URL) apiUrl = process.env.OMEM_API_URL;
-  if (process.env.OMEM_API_KEY) apiKey = process.env.OMEM_API_KEY;
-  if (process.env.OMEM_AUTO_CAPTURE_THRESHOLD) {
-    autoCaptureThreshold = parseInt(process.env.OMEM_AUTO_CAPTURE_THRESHOLD, 10) || 5;
-  }
-  if (process.env.OMEM_INGEST_MODE === "raw" || process.env.OMEM_INGEST_MODE === "smart") {
-    ingestMode = process.env.OMEM_INGEST_MODE;
-  }
-
-  try {
-    const globalCfg = JSON.parse(readFileSync(join(homedir(), ".config", "ourmem", "config.json"), "utf-8"));
-    if (globalCfg.apiUrl) apiUrl = globalCfg.apiUrl;
-    if (globalCfg.apiKey) apiKey = globalCfg.apiKey;
-    if (globalCfg.autoCaptureThreshold) {
-      autoCaptureThreshold = parseInt(globalCfg.autoCaptureThreshold, 10) || 5;
-    }
-    if (globalCfg.ingestMode === "raw" || globalCfg.ingestMode === "smart") {
-      ingestMode = globalCfg.ingestMode;
-    }
-    if (typeof globalCfg.similarityThreshold === "number") {
-      similarityThreshold = globalCfg.similarityThreshold;
-    }
-    if (typeof globalCfg.maxRecallResults === "number") {
-      maxRecallResults = globalCfg.maxRecallResults;
-    }
-  } catch {}
-
+  // Load overrides from opencode.json plugin_config
+  let overrides: Record<string, unknown> = {};
   try {
     const ocCfg = JSON.parse(readFileSync(join(directory, "opencode.json"), "utf-8"));
     const pc = ocCfg?.plugin_config?.["@mingxy/omem"] || ocCfg?.plugin_config?.["@ourmem/opencode"];
-    if (pc?.apiUrl) apiUrl = pc.apiUrl;
-    if (pc?.apiKey) apiKey = pc.apiKey;
-    if (pc?.autoCaptureThreshold) {
-      autoCaptureThreshold = parseInt(pc.autoCaptureThreshold, 10) || 5;
-    }
-    if (pc?.ingestMode === "raw" || pc?.ingestMode === "smart") {
-      ingestMode = pc.ingestMode;
-    }
-    if (typeof pc?.similarityThreshold === "number") {
-      similarityThreshold = pc.similarityThreshold;
-    }
-    if (typeof pc?.maxRecallResults === "number") {
-      maxRecallResults = pc.maxRecallResults;
-    }
+    if (pc) overrides = pc;
   } catch {}
 
-  const omemClient = new OmemClient(apiUrl, apiKey);
+  const config = loadPluginConfig(overrides as any);
+
+  const omemClient = new OmemClient(config.apiUrl, config.apiKey, config);
 
   // 启动时检测连接状态
   try {
-    const stats = await omemClient.getStats();
-    if (stats) {
-      const tenantId = apiKey ? `${apiKey.slice(0, 8)}...` : "unknown";
+    await omemClient.getStats();
+    showToast(
+      tui,
+      `🧠 Omem v${pluginVersion} · Connected`,
+      `${config.apiUrl.replace(/^https?:\/\//, "")}`,
+      "success",
+      6000
+    );
+    logInfo(`Connected to ${config.apiUrl}`);
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    logError(`Connection failed: ${errMsg}`);
+    if (errMsg.includes("[omem]")) {
+      const cleanMsg = errMsg.replace(/^\[omem\]\s*/, "");
       showToast(
         tui,
-        `🧠 Omem v${pluginVersion} · Connected`,
-        `${apiUrl.replace(/^https?:\/\//, "")} · ${tenantId}`,
-        "success",
-        6000
+        `🧠 Omem v${pluginVersion} · Server Error`,
+        cleanMsg.substring(0, 150),
+        "error",
+        8000
       );
     } else {
       showToast(
         tui,
         `🧠 Omem v${pluginVersion} · Connection Failed`,
-        `Unable to reach ${apiUrl} · Check API URL and Key`,
+        `Unable to reach ${config.apiUrl}`,
         "error",
         8000
       );
     }
-  } catch {
-    showToast(
-      tui,
-      `🧠 Omem v${pluginVersion} · Connection Failed`,
-      `Unable to reach ${apiUrl}\nCheck API URL and Key in config`,
-      "error",
-      8000
-    );
   }
 
   const email = process.env.GIT_AUTHOR_EMAIL || process.env.USER || "unknown";
@@ -123,9 +84,9 @@ const OmemPlugin: Plugin = async (input) => {
   const containerTags = [getUserTag(email), getProjectTag(cwd)];
 
   return {
-    "experimental.chat.system.transform": autoRecallHook(omemClient, containerTags, tui, similarityThreshold, maxRecallResults),
-    "chat.message": keywordDetectionHook(omemClient, containerTags, autoCaptureThreshold, tui, ingestMode),
-    "experimental.session.compacting": compactingHook(omemClient, containerTags, tui, ingestMode),
+    "experimental.chat.system.transform": autoRecallHook(omemClient, containerTags, tui, config),
+    "chat.message": keywordDetectionHook(omemClient, containerTags, config.autoCaptureThreshold, tui, config.ingestMode),
+    "experimental.session.compacting": compactingHook(omemClient, containerTags, tui, config.ingestMode),
     tool: buildTools(omemClient, containerTags),
     "shell.env": async (_input, output) => {
       if (directory) {

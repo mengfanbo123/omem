@@ -1,7 +1,5 @@
-const DEFAULT_TIMEOUT_MS = 5_000;
-
-const MAX_QUERY_LENGTH = 200; // CJK URL-encodes ~9x; 200 chars → ~1800 bytes < nginx 4K
-const MAX_CONTENT_CHARS = 30_000;
+import { logWarn, logError } from "./logger.js";
+import type { OmemPluginConfig } from "./config.js";
 
 function sanitizeContent(text: string, maxLen: number): string {
   let clean = text.replace(/<[\w-]+[^>]*>[\s\S]*?<\/[\w-]+>/g, "");
@@ -11,9 +9,9 @@ function sanitizeContent(text: string, maxLen: number): string {
   return clean.slice(0, maxLen) + "…[truncated]";
 }
 
-function truncateQuery(query: string): string {
-  if (query.length <= MAX_QUERY_LENGTH) return query;
-  return query.slice(0, MAX_QUERY_LENGTH);
+function truncateQuery(query: string, maxLen: number): string {
+  if (query.length <= maxLen) return query;
+  return query.slice(0, maxLen);
 }
 
 export interface IngestOptions {
@@ -79,8 +77,13 @@ export class OmemClient {
   constructor(
     private baseUrl: string,
     private apiKey: string,
+    private config?: Partial<OmemPluginConfig>,
   ) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
+  }
+
+  private getCfg<K extends keyof OmemPluginConfig>(key: K, fallback: OmemPluginConfig[K]): OmemPluginConfig[K] {
+    return this.config?.[key] ?? fallback;
   }
 
   private async request<T>(
@@ -92,7 +95,7 @@ export class OmemClient {
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(),
-      timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      timeoutMs ?? this.getCfg("requestTimeoutMs", 15000),
     );
 
     try {
@@ -107,10 +110,9 @@ export class OmemClient {
       });
 
       if (!res.ok) {
-        console.warn(
-          `[omem] ${init.method ?? "GET"} ${path} → ${res.status} ${res.statusText}`,
-        );
-        return null;
+        const errorBody = await res.text().catch(() => "");
+        logWarn(`${init.method ?? "GET"} ${path} → ${res.status} ${res.statusText}: ${errorBody}`);
+        throw new Error(`[omem] ${res.status} ${res.statusText}${errorBody ? ": " + errorBody : ""}`);
       }
 
       if (res.status === 204) return null;
@@ -118,11 +120,12 @@ export class OmemClient {
       return (await res.json()) as T;
     } catch (err) {
       if ((err as Error).name === "AbortError") {
-        console.warn(`[omem] ${init.method ?? "GET"} ${path} timed out`);
+        logWarn(`${init.method ?? "GET"} ${path} timed out`);
+        throw new Error(`[omem] Request timed out (${timeoutMs ?? this.getCfg("requestTimeoutMs", 15000)}ms)`);
       } else {
-        console.warn(`[omem] ${init.method ?? "GET"} ${path} failed:`, err);
+        logError(`${init.method ?? "GET"} ${path} failed:`, err);
+        throw err;
       }
-      return null;
     } finally {
       clearTimeout(timeout);
     }
@@ -151,7 +154,7 @@ export class OmemClient {
     tags?: string[],
     source?: string,
   ): Promise<MemoryDto | null> {
-    const safeContent = sanitizeContent(content, MAX_CONTENT_CHARS);
+    const safeContent = sanitizeContent(content, this.getCfg("maxContentChars", 30000));
     return this.post<MemoryDto>("/v1/memories", { content: safeContent, tags, source });
   }
 
@@ -161,7 +164,7 @@ export class OmemClient {
     scope?: string,
     tags?: string[],
   ): Promise<SearchResult[]> {
-    const safeQ = truncateQuery(query);
+    const safeQ = truncateQuery(query, this.getCfg("maxQueryLength", 200));
     const params = new URLSearchParams({ q: safeQ, limit: String(limit) });
     if (scope) params.set("scope", scope);
     if (tags && tags.length > 0) params.set("tags", tags.join(","));
@@ -198,7 +201,7 @@ export class OmemClient {
   ): Promise<unknown> {
     const safeMessages = messages.map(m => ({
       role: m.role,
-      content: sanitizeContent(m.content, MAX_CONTENT_CHARS),
+      content: sanitizeContent(m.content, this.getCfg("maxContentChars", 30000)),
     }));
     return this.post("/v1/memories", {
       messages: safeMessages,
