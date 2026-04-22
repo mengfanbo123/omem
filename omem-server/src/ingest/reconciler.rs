@@ -547,6 +547,7 @@ impl Reconciler {
         mem.l2_content = fact.l2_content.clone();
         mem.tags = fact.tags.clone();
         mem.confidence = fact.quality_score.clamp(0.1, 1.0);
+        mem.importance = category_importance(&mem.category, fact.quality_score);
         mem.agent_id = agent_id;
         mem.session_id = session_id;
         mem.source = Some("ingest".to_string());
@@ -560,6 +561,19 @@ impl Reconciler {
         self.store.create(&mem, vector).await?;
         Ok(mem)
     }
+}
+
+fn category_importance(category: &Category, quality_score: f32) -> f32 {
+    let base = match category {
+        Category::Profile => 0.8,
+        Category::Preferences => 0.7,
+        Category::Entities => 0.6,
+        Category::Patterns => 0.6,
+        Category::Cases => 0.5,
+        Category::Events => 0.4,
+    };
+    let blended = base * 0.6 + quality_score * 0.4;
+    blended.clamp(0.1, 1.0)
 }
 
 fn build_id_maps(existing: &[Memory]) -> (Vec<(usize, &str)>, HashMap<usize, String>) {

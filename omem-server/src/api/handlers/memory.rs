@@ -15,6 +15,7 @@ use crate::domain::types::MemoryType;
 use crate::ingest::types::{IngestMessage, IngestMode, IngestRequest};
 use crate::ingest::IngestPipeline;
 use crate::ingest::SessionStore;
+use crate::lifecycle::tier::TierManager;
 use crate::retrieve::pipeline::SearchRequest;
 use crate::retrieve::RetrievalPipeline;
 use crate::store::lancedb::ListFilter;
@@ -37,6 +38,7 @@ pub struct CreateMemoryBody {
     #[serde(default)]
     pub tags: Option<Vec<String>>,
     pub source: Option<String>,
+    pub tier: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -96,6 +98,7 @@ pub struct UpdateMemoryBody {
     pub content: Option<String>,
     pub tags: Option<Vec<String>>,
     pub state: Option<String>,
+    pub tier: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -214,6 +217,11 @@ pub async fn create_memory(
     memory.tags = body.tags.unwrap_or_default();
     memory.source = body.source;
     memory.agent_id = auth.agent_id;
+    if let Some(tier_str) = body.tier {
+        memory.tier = tier_str
+            .parse()
+            .map_err(|e: String| OmemError::Validation(e))?;
+    }
 
     let vectors = state
         .embed
@@ -299,7 +307,7 @@ pub async fn search_memories(
             agent_id_filter: params.agent_id.clone(),
         };
 
-        let retrieval_pipeline = RetrievalPipeline::new(store);
+        let retrieval_pipeline = RetrievalPipeline::new(store.clone());
         let search_results = retrieval_pipeline.search(&request).await?;
 
         let mut results: Vec<SearchResultDto> = search_results
@@ -320,6 +328,30 @@ pub async fn search_memories(
         }
 
         let trace = build_trace(params.include_trace, &search_results.trace);
+
+        // Fire-and-forget: increment access_count and evaluate tier for search results
+        {
+            let update_store = store;
+            let memories_to_update: Vec<Memory> = results.iter().map(|r| r.memory.clone()).collect();
+            tracing::debug!(count = memories_to_update.len(), "search_access_count_update_start");
+            tokio::spawn(async move {
+                for mut memory in memories_to_update {
+                    let old_tier = memory.tier.clone();
+                    let old_count = memory.access_count;
+                    memory.access_count += 1;
+                    memory.last_accessed_at = Some(chrono::Utc::now().to_rfc3339());
+                    let new_tier = TierManager::with_defaults().evaluate_tier(&memory);
+                    if new_tier != old_tier {
+                        tracing::info!(memory_id = %memory.id, old_tier = %old_tier, new_tier = %new_tier, access_count = old_count + 1, "tier_promoted_via_search");
+                    }
+                    memory.tier = new_tier;
+                    if let Err(e) = update_store.update(&memory, None).await {
+                        tracing::warn!(memory_id = %memory.id, error = %e, "failed_to_update_access_count_after_search");
+                    }
+                }
+            });
+        }
+
         return Ok(Json(SearchResponseDto { results, trace }));
     }
 
@@ -428,6 +460,34 @@ pub async fn search_memories(
         }
     }
 
+    // Fire-and-forget: increment access_count and evaluate tier for cross-space search results
+    {
+        let mgr = state.store_manager.clone();
+        let memories_to_update: Vec<(String, Memory)> = results
+            .iter()
+            .map(|r| (r.memory.space_id.clone(), r.memory.clone()))
+            .collect();
+        tracing::debug!(count = memories_to_update.len(), query = %params.q, "cross_space_access_count_update_start");
+        tokio::spawn(async move {
+            for (space_id, mut memory) in memories_to_update {
+                if let Ok(store) = mgr.get_store(&space_id).await {
+                    let old_tier = memory.tier.clone();
+                    let old_count = memory.access_count;
+                    memory.access_count += 1;
+                    memory.last_accessed_at = Some(chrono::Utc::now().to_rfc3339());
+                    let new_tier = TierManager::with_defaults().evaluate_tier(&memory);
+                    if new_tier != old_tier {
+                        tracing::info!(memory_id = %memory.id, old_tier = %old_tier, new_tier = %new_tier, access_count = old_count + 1, space_id = %space_id, "tier_promoted_via_cross_space_search");
+                    }
+                    memory.tier = new_tier;
+                    if let Err(e) = store.update(&memory, None).await {
+                        tracing::warn!(memory_id = %memory.id, error = %e, "failed_to_update_access_count_after_cross_space_search");
+                    }
+                }
+            }
+        });
+    }
+
     Ok(Json(SearchResponseDto {
         results,
         trace: None,
@@ -499,10 +559,23 @@ pub async fn get_memory(
         .store_manager
         .get_store(&personal_space_id(&auth.tenant_id))
         .await?;
-    let memory = store
+    let mut memory = store
         .get_by_id(&id)
         .await?
         .ok_or_else(|| OmemError::NotFound(format!("memory {id}")))?;
+
+    let old_tier = memory.tier.clone();
+    let old_count = memory.access_count;
+    memory.access_count += 1;
+    memory.last_accessed_at = Some(chrono::Utc::now().to_rfc3339());
+    let new_tier = TierManager::with_defaults().evaluate_tier(&memory);
+    if new_tier != old_tier {
+        tracing::info!(memory_id = %memory.id, old_tier = %old_tier, new_tier = %new_tier, access_count = old_count + 1, "tier_promoted");
+    } else {
+        tracing::debug!(memory_id = %memory.id, tier = %new_tier, access_count = old_count + 1, "access_count_incremented");
+    }
+    memory.tier = new_tier;
+    store.update(&memory, None).await?;
 
     let mut response = serde_json::to_value(&memory)
         .map_err(|e| OmemError::Internal(format!("serialize failed: {e}")))?;
@@ -550,6 +623,12 @@ pub async fn update_memory(
 
     if let Some(state_str) = body.state {
         memory.state = state_str
+            .parse()
+            .map_err(|e: String| OmemError::Validation(e))?;
+    }
+
+    if let Some(tier_str) = body.tier {
+        memory.tier = tier_str
             .parse()
             .map_err(|e: String| OmemError::Validation(e))?;
     }

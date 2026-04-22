@@ -8,6 +8,7 @@ use crate::api::server::{personal_space_id, AppState};
 use crate::domain::error::OmemError;
 use crate::domain::memory::Memory;
 use crate::domain::tenant::AuthInfo;
+use crate::lifecycle::tier::TierManager;
 use crate::store::lancedb::SessionRecall;
 
 const SHOULD_RECALL_SYSTEM_PROMPT: &str = r#"你是一个记忆召回助手。用户有一个个人知识库，保存了过往笔记、项目经验、技术方案、偏好设置、私密记录等记忆。你的任务是判断用户当前的问题是否需要从知识库中检索相关记忆来辅助回答。
@@ -208,6 +209,29 @@ pub async fn should_recall(
     }
 
     let confidence = memories.iter().map(|m| m.score).sum::<f32>() / memories.len() as f32;
+
+    // Fire-and-forget: increment access_count and evaluate tier for recalled memories
+    {
+        let update_store = store;
+        let memories_to_update: Vec<Memory> = memories.iter().map(|m| m.memory.clone()).collect();
+        tracing::debug!(count = memories_to_update.len(), query = %body.query_text, "recall_access_count_update_start");
+        tokio::spawn(async move {
+            for mut memory in memories_to_update {
+                let old_tier = memory.tier.clone();
+                let old_count = memory.access_count;
+                memory.access_count += 1;
+                memory.last_accessed_at = Some(chrono::Utc::now().to_rfc3339());
+                let new_tier = TierManager::with_defaults().evaluate_tier(&memory);
+                if new_tier != old_tier {
+                    tracing::info!(memory_id = %memory.id, old_tier = %old_tier, new_tier = %new_tier, access_count = old_count + 1, "tier_promoted_via_recall");
+                }
+                memory.tier = new_tier;
+                if let Err(e) = update_store.update(&memory, None).await {
+                    tracing::warn!(memory_id = %memory.id, error = %e, "failed_to_update_access_count_after_recall");
+                }
+            }
+        });
+    }
 
     Ok(Json(ShouldRecallResponse {
         should_recall: true,

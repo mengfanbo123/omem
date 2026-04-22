@@ -86,6 +86,11 @@ impl StoreManager {
         Ok(store)
     }
 
+    pub async fn cached_stores(&self) -> Vec<Arc<LanceStore>> {
+        let cache = self.cache.lock().await;
+        cache.values().map(|e| e.store.clone()).collect()
+    }
+
     /// Weight by space type: personal=1.0 > team=0.8 > org=0.6.
     /// Used for multi-space search result ranking.
     pub async fn get_accessible_stores(

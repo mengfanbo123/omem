@@ -5,6 +5,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 use omem_server::api::{build_router, AppState};
 use omem_server::config::OmemConfig;
 use omem_server::embed::{create_embed_service, EmbedService};
+use omem_server::lifecycle::scheduler::LifecycleScheduler;
 use omem_server::llm::{create_llm_service, create_recall_llm_service, LlmService};
 use omem_server::store::{SpaceStore, StoreManager, TenantStore};
 
@@ -89,7 +90,17 @@ async fn main() {
         reconcile_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
     });
 
-    let app = build_router(state);
+    let app = build_router(state.clone());
+
+    // Start lifecycle scheduler: tier evaluation + TTL cleanup every 6 hours
+    {
+        let scheduler = Arc::new(LifecycleScheduler::new(
+            state.store_manager.clone(),
+            std::time::Duration::from_secs(6 * 3600),
+        ));
+        tokio::spawn(async move { scheduler.run().await });
+        tracing::info!("lifecycle_scheduler_started_interval=6h");
+    }
 
     let addr = format!("0.0.0.0:{}", config.port);
     let listener = tokio::net::TcpListener::bind(&addr)
