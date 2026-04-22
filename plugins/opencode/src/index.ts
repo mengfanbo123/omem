@@ -82,13 +82,21 @@ const OmemPlugin: Plugin = async (input) => {
   const email = process.env.GIT_AUTHOR_EMAIL || process.env.USER || "unknown";
   const cwd = directory || process.cwd();
   const containerTags = [getUserTag(email), getProjectTag(cwd)];
+  const agentId = process.env.OMEM_AGENT_ID || "opencode";
+
+  let currentSessionId: string | undefined;
+
+  const recallHook = autoRecallHook(omemClient, containerTags, tui, config);
 
   return {
-    "experimental.chat.system.transform": autoRecallHook(omemClient, containerTags, tui, config),
+    "experimental.chat.system.transform": async (input: any, output: any) => {
+      if (input.sessionID) currentSessionId = input.sessionID;
+      return recallHook(input, output);
+    },
     "chat.message": keywordDetectionHook(omemClient, containerTags, config.autoCaptureThreshold, tui, config.ingestMode),
     "experimental.session.compacting": compactingHook(omemClient, containerTags, tui, config.ingestMode),
-    tool: buildTools(omemClient, containerTags),
-    "shell.env": async (_input, output) => {
+    tool: buildTools(omemClient, containerTags, { agentId, getSessionId: () => currentSessionId }),
+    "shell.env": async (_input: any, output: any) => {
       if (directory) {
         output.env.OMEM_PROJECT_DIR = directory;
       }

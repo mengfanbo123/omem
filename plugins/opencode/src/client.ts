@@ -153,9 +153,19 @@ export class OmemClient {
     content: string,
     tags?: string[],
     source?: string,
+    scope?: string,
+    agentId?: string,
+    sessionId?: string,
   ): Promise<MemoryDto | null> {
     const safeContent = sanitizeContent(content, this.getCfg("maxContentChars", 30000));
-    return this.post<MemoryDto>("/v1/memories", { content: safeContent, tags, source });
+    return this.post<MemoryDto>("/v1/memories", {
+      content: safeContent,
+      tags,
+      source,
+      scope,
+      agent_id: agentId,
+      session_id: sessionId,
+    });
   }
 
   async searchMemories(
@@ -289,6 +299,7 @@ export class OmemClient {
     session_id: string,
     similarity_threshold?: number,
     max_results?: number,
+    project_tags?: string[],
   ): Promise<ShouldRecallResponse | null> {
     const res = await this.post<ShouldRecallResponse>("/v1/should-recall", {
       query_text,
@@ -296,6 +307,7 @@ export class OmemClient {
       session_id,
       similarity_threshold,
       max_results,
+      project_tags,
     }, 20_000);
     return res;
   }

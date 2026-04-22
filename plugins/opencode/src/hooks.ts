@@ -96,7 +96,7 @@ function buildContextBlock(results: SearchResult[], maxContentLength: number = 5
   ].join("\n");
 }
 
-export function autoRecallHook(client: OmemClient, _containerTags: string[], tui: any, config: Partial<OmemPluginConfig> = {}) {
+export function autoRecallHook(client: OmemClient, containerTags: string[], tui: any, config: Partial<OmemPluginConfig> = {}) {
   const similarityThreshold = config.similarityThreshold ?? 0.6;
   const maxRecallResults = config.maxRecallResults ?? 10;
   const maxContentLength = config.maxContentLength ?? 500;
@@ -114,7 +114,8 @@ export function autoRecallHook(client: OmemClient, _containerTags: string[], tui
       const query_text = userMessages[userMessages.length - 1]?.content || firstMessages.get(input.sessionID) || "";
       const last_query_text = userMessages.length >= 2 ? userMessages[userMessages.length - 2].content : undefined;
 
-      const shouldRecallRes = await client.shouldRecall(query_text, last_query_text, input.sessionID, similarityThreshold, maxRecallResults);
+      const projectTags = containerTags.filter(t => t.startsWith("omem_project_"));
+      const shouldRecallRes = await client.shouldRecall(query_text, last_query_text, input.sessionID, similarityThreshold, maxRecallResults, projectTags.length > 0 ? projectTags : undefined);
 
       if (!shouldRecallRes) {
         showToast(tui, "🧠 Omem Service Unavailable", "Unable to reach memory API · check connection", "error", toastDelayMs);

@@ -20,7 +20,12 @@ function extractMemoryIds(result: unknown): string[] {
   return [];
 }
 
-export function buildTools(client: OmemClient, containerTags: string[]) {
+export interface ToolContext {
+  agentId?: string;
+  getSessionId: () => string | undefined;
+}
+
+export function buildTools(client: OmemClient, containerTags: string[], context: ToolContext) {
   return {
     memory_store: tool({
       description:
@@ -37,6 +42,10 @@ export function buildTools(client: OmemClient, containerTags: string[]) {
           .string()
           .optional()
           .describe("Origin context, e.g. 'conversation', 'code-review'"),
+        scope: tool.schema
+          .string()
+          .optional()
+          .describe("Memory scope: 'project' (default, only visible in this project) or 'global' (visible across all projects)"),
       },
       async execute(args) {
         const allTags = [...containerTags, ...(args.tags ?? [])];
@@ -44,6 +53,9 @@ export function buildTools(client: OmemClient, containerTags: string[]) {
           args.content,
           allTags,
           args.source,
+          args.scope ?? "project",
+          context.agentId,
+          context.getSessionId(),
         );
         if (!result) return JSON.stringify({ ok: false, error: "The omem server may be unavailable." });
         return JSON.stringify({ ok: true, id: result.id, tags: result.tags });
