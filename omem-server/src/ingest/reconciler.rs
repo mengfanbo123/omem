@@ -458,6 +458,7 @@ impl Reconciler {
                             self.min_similarity,
                             None,
                             None,
+                            None,
                         )
                         .await
                     {
@@ -490,7 +491,7 @@ impl Reconciler {
 
             match self
                 .store
-                .fts_search(&fts_query, self.max_per_fact, None, None)
+                .fts_search(&fts_query, self.max_per_fact, None, None, None)
                 .await
             {
                 Ok(results) => {

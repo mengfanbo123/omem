@@ -33,6 +33,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/stats/spaces", get(handlers::get_spaces_stats))
         .route("/v1/stats/sharing", get(handlers::get_sharing_stats))
         .route("/v1/stats/agents", get(handlers::get_agents_stats))
+        .route("/v1/tier-changes", get(handlers::get_tier_changes))
+        .route("/v1/tier-changes/delete", post(handlers::delete_tier_history_entry))
         .route("/v1/files", post(handlers::upload_file))
         .route(
             "/v1/imports",

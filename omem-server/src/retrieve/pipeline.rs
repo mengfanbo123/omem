@@ -191,7 +191,7 @@ impl RetrievalPipeline {
         let vector_fut = async {
             if let Some(ref qv) = request.query_vector {
                 self.store
-                    .vector_search(qv, fetch_limit, 0.0, scope, None)
+                    .vector_search(qv, fetch_limit, 0.0, scope, None, None)
                     .await
             } else {
                 Ok(Vec::new())
@@ -200,7 +200,7 @@ impl RetrievalPipeline {
 
         let bm25_fut = async {
             self.store
-                .fts_search(&request.query, fetch_limit, scope, None)
+                .fts_search(&request.query, fetch_limit, scope, None, None)
                 .await
         };
 

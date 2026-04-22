@@ -39,6 +39,8 @@ pub struct Memory {
     pub provenance: Option<Provenance>,
     #[serde(default)]
     pub version: Option<u64>,
+    #[serde(default)]
+    pub tier_history: Option<String>,
 }
 
 impl Memory {
@@ -80,7 +82,24 @@ impl Memory {
             owner_agent_id: String::new(),
             provenance: None,
             version: Some(1),
+            tier_history: None,
         }
+    }
+
+    pub fn append_tier_change(&mut self, from: &str, to: &str, reason: &str) {
+        let event = serde_json::json!({
+            "from": from,
+            "to": to,
+            "reason": reason,
+            "at": chrono::Utc::now().to_rfc3339(),
+            "access_count": self.access_count,
+        });
+        let mut history: Vec<serde_json::Value> = match &self.tier_history {
+            Some(h) if !h.is_empty() => serde_json::from_str(h).unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        history.push(event);
+        self.tier_history = Some(serde_json::to_string(&history).unwrap_or_default());
     }
 }
 

@@ -39,6 +39,7 @@ pub struct CreateMemoryBody {
     pub tags: Option<Vec<String>>,
     pub source: Option<String>,
     pub tier: Option<String>,
+    pub scope: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -99,6 +100,7 @@ pub struct UpdateMemoryBody {
     pub tags: Option<Vec<String>>,
     pub state: Option<String>,
     pub tier: Option<String>,
+    pub tier_history: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -128,6 +130,8 @@ pub struct StaleInfo {
 pub struct GetMemoryQuery {
     #[serde(default)]
     pub check_stale: bool,
+    #[serde(default)]
+    pub skip_access: bool,
 }
 
 #[derive(Serialize)]
@@ -221,6 +225,15 @@ pub async fn create_memory(
         memory.tier = tier_str
             .parse()
             .map_err(|e: String| OmemError::Validation(e))?;
+    }
+    if let Some(scope) = body.scope {
+        memory.scope = scope;
+    }
+    if let Some(session_id) = body.session_id {
+        memory.session_id = Some(session_id);
+    }
+    if let Some(agent_id) = body.agent_id {
+        memory.agent_id = Some(agent_id);
     }
 
     let vectors = state
@@ -343,6 +356,7 @@ pub async fn search_memories(
                     let new_tier = TierManager::with_defaults().evaluate_tier(&memory);
                     if new_tier != old_tier {
                         tracing::info!(memory_id = %memory.id, old_tier = %old_tier, new_tier = %new_tier, access_count = old_count + 1, "tier_promoted_via_search");
+                        memory.append_tier_change(&old_tier.to_string(), &new_tier.to_string(), "access_via_search");
                     }
                     memory.tier = new_tier;
                     if let Err(e) = update_store.update(&memory, None).await {
@@ -478,6 +492,7 @@ pub async fn search_memories(
                     let new_tier = TierManager::with_defaults().evaluate_tier(&memory);
                     if new_tier != old_tier {
                         tracing::info!(memory_id = %memory.id, old_tier = %old_tier, new_tier = %new_tier, access_count = old_count + 1, space_id = %space_id, "tier_promoted_via_cross_space_search");
+                        memory.append_tier_change(&old_tier.to_string(), &new_tier.to_string(), "access_via_cross_space_search");
                     }
                     memory.tier = new_tier;
                     if let Err(e) = store.update(&memory, None).await {
@@ -566,16 +581,19 @@ pub async fn get_memory(
 
     let old_tier = memory.tier.clone();
     let old_count = memory.access_count;
-    memory.access_count += 1;
-    memory.last_accessed_at = Some(chrono::Utc::now().to_rfc3339());
-    let new_tier = TierManager::with_defaults().evaluate_tier(&memory);
-    if new_tier != old_tier {
-        tracing::info!(memory_id = %memory.id, old_tier = %old_tier, new_tier = %new_tier, access_count = old_count + 1, "tier_promoted");
-    } else {
-        tracing::debug!(memory_id = %memory.id, tier = %new_tier, access_count = old_count + 1, "access_count_incremented");
+    if !params.skip_access {
+        memory.access_count += 1;
+        memory.last_accessed_at = Some(chrono::Utc::now().to_rfc3339());
+        let new_tier = TierManager::with_defaults().evaluate_tier(&memory);
+        if new_tier != old_tier {
+            tracing::info!(memory_id = %memory.id, old_tier = %old_tier, new_tier = %new_tier, access_count = old_count + 1, "tier_promoted");
+            memory.append_tier_change(&old_tier.to_string(), &new_tier.to_string(), "access_via_get");
+        } else {
+            tracing::debug!(memory_id = %memory.id, tier = %new_tier, access_count = old_count + 1, "access_count_incremented");
+        }
+        memory.tier = new_tier;
+        store.update(&memory, None).await?;
     }
-    memory.tier = new_tier;
-    store.update(&memory, None).await?;
 
     let mut response = serde_json::to_value(&memory)
         .map_err(|e| OmemError::Internal(format!("serialize failed: {e}")))?;
@@ -631,6 +649,10 @@ pub async fn update_memory(
         memory.tier = tier_str
             .parse()
             .map_err(|e: String| OmemError::Validation(e))?;
+    }
+
+    if let Some(th) = body.tier_history {
+        memory.tier_history = if th.is_empty() { None } else { Some(th) };
     }
 
     memory.updated_at = chrono::Utc::now().to_rfc3339();
@@ -862,4 +884,187 @@ pub async fn delete_all_memories(
         "deleted": count,
         "sessions_cleared": sessions_cleared
     })))
+}
+
+// ── Tier Changes ────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct TierChangesQuery {
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub offset: usize,
+    #[serde(default)]
+    pub filter: Option<String>,
+    #[serde(default)]
+    pub search: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TierChangeItem {
+    pub memory_id: String,
+    pub memory_title: String,
+    pub from: String,
+    pub to: String,
+    pub reason: String,
+    pub at: String,
+    pub access_count: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TierChangesResponse {
+    pub changes: Vec<TierChangeItem>,
+    pub total_count: usize,
+    pub limit: usize,
+    pub offset: usize,
+}
+
+pub async fn get_tier_changes(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthInfo>,
+    Query(params): Query<TierChangesQuery>,
+) -> Result<Json<TierChangesResponse>, OmemError> {
+    let store = state
+        .store_manager
+        .get_store(&personal_space_id(&auth.tenant_id))
+        .await?;
+
+    let filter = ListFilter {
+        category: None,
+        tier: None,
+        tags: None,
+        memory_type: None,
+        state: Some("active".to_string()),
+        visibility: None,
+        sort: String::new(),
+        order: String::new(),
+    };
+    let memories = store.list_filtered(&filter, 2000, 0).await?;
+
+    let tier_order = |t: &str| -> i32 {
+        match t {
+            "peripheral" => 0,
+            "working" => 1,
+            "core" => 2,
+            _ => 0,
+        }
+    };
+
+    let mut all_changes: Vec<TierChangeItem> = Vec::new();
+
+    for mem in &memories {
+        if let Some(ref hist) = mem.tier_history {
+            if hist.is_empty() {
+                continue;
+            }
+            let events: Vec<serde_json::Value> = match serde_json::from_str(hist) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let title = if mem.l0_abstract.is_empty() {
+                mem.content.chars().take(40).collect::<String>()
+            } else {
+                mem.l0_abstract.clone()
+            };
+            for ev in events {
+                let from = ev["from"].as_str().unwrap_or("").to_string();
+                let to = ev["to"].as_str().unwrap_or("").to_string();
+                let reason = ev["reason"].as_str().unwrap_or("").to_string();
+                let at = ev["at"].as_str().unwrap_or("").to_string();
+                let access_count = ev["access_count"].as_u64().unwrap_or(0) as u32;
+
+                if let Some(ref f) = params.filter {
+                    let from_rank = tier_order(&from);
+                    let to_rank = tier_order(&to);
+                    match f.as_str() {
+                        "promote" if from_rank >= to_rank => continue,
+                        "demote" if from_rank <= to_rank => continue,
+                        _ => {}
+                    }
+                }
+
+                if let Some(ref q) = params.search {
+                    let ql = q.to_lowercase();
+                    let haystack = format!("{} {} {} {} {}", mem.id, title, from, to, reason).to_lowercase();
+                    if !haystack.contains(&ql) {
+                        continue;
+                    }
+                }
+
+                all_changes.push(TierChangeItem {
+                    memory_id: mem.id.clone(),
+                    memory_title: title.clone(),
+                    from,
+                    to,
+                    reason,
+                    at,
+                    access_count,
+                });
+            }
+        }
+    }
+
+    all_changes.sort_by(|a, b| b.at.cmp(&a.at));
+
+    let total_count = all_changes.len();
+    let paged: Vec<TierChangeItem> = all_changes
+        .into_iter()
+        .skip(params.offset)
+        .take(params.limit)
+        .collect();
+
+    Ok(Json(TierChangesResponse {
+        changes: paged,
+        total_count,
+        limit: params.limit,
+        offset: params.offset,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct DeleteTierHistoryBody {
+    pub memory_id: String,
+    pub from: String,
+    pub to: String,
+    pub at: String,
+    pub reason: String,
+}
+
+pub async fn delete_tier_history_entry(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthInfo>,
+    Json(body): Json<DeleteTierHistoryBody>,
+) -> Result<Json<serde_json::Value>, OmemError> {
+    let store = state
+        .store_manager
+        .get_store(&personal_space_id(&auth.tenant_id))
+        .await?;
+
+    let mut mem = store.get_by_id(&body.memory_id).await?
+        .ok_or_else(|| OmemError::NotFound("Memory not found".to_string()))?;
+
+    let tier_history = mem.tier_history.take().unwrap_or_default();
+    if tier_history.is_empty() {
+        return Ok(Json(serde_json::json!({ "deleted": false, "reason": "no history" })));
+    }
+
+    let mut history: Vec<serde_json::Value> = serde_json::from_str(&tier_history)
+        .unwrap_or_default();
+
+    let before = history.len();
+    history.retain(|e| {
+        !(e["from"].as_str().unwrap_or("") == body.from
+            && e["to"].as_str().unwrap_or("") == body.to
+            && e["at"].as_str().unwrap_or("") == body.at
+            && e["reason"].as_str().unwrap_or("") == body.reason)
+    });
+    let deleted = history.len() < before;
+
+    mem.tier_history = if history.is_empty() { None } else { Some(serde_json::to_string(&history).unwrap_or_default()) };
+    let vector = store.get_vector_by_id(&body.memory_id).await?.or(None);
+    store.update(&mem, vector.as_deref()).await?;
+
+    Ok(Json(serde_json::json!({ "deleted": deleted })))
 }

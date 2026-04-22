@@ -249,6 +249,7 @@ fn make_shared_copy(source: &Memory, target_space: &str, user_id: &str, agent_id
             source_version: source.version,
         }),
         version: Some(1),
+        tier_history: None,
     }
 }
 

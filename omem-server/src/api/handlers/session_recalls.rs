@@ -32,6 +32,7 @@ pub struct ShouldRecallRequest {
     pub session_id: String,
     pub similarity_threshold: Option<f32>,
     pub max_results: Option<usize>,
+    pub project_tags: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -176,20 +177,96 @@ pub async fn should_recall(
 
     let effective_min_score = if llm_yes { min_score } else { min_score * 0.5 };
 
-    let results = if is_zero_vector {
-        tracing::info!(query = %body.query_text, "using_fts_search_zero_vector");
-        store
-            .fts_search(&body.query_text, max_results, None, None)
-            .await
-            .unwrap_or_default()
-    } else {
-        let search_vec = query_vector.unwrap();
-        tracing::info!(query = %body.query_text, min_score = effective_min_score, max_results = max_results, "using_vector_search");
-        store
-            .vector_search(&search_vec, max_results, effective_min_score, None, None)
-            .await
-            .unwrap_or_default()
-    };
+    // Two-phase search: project-first, then global fallback
+    let project_tags_slice = body.project_tags.as_deref();
+    let mut all_results: Vec<(Memory, f32)> = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
+
+    // Phase 1: Search within project scope (using project_tags filter)
+    if let Some(tags) = project_tags_slice {
+        if !tags.is_empty() {
+            let project_results = if is_zero_vector {
+                store
+                    .fts_search(&body.query_text, max_results, None, None, Some(tags))
+                    .await
+                    .unwrap_or_default()
+            } else {
+                let search_vec = query_vector.as_ref().unwrap();
+                store
+                    .vector_search(search_vec, max_results, effective_min_score, None, None, Some(tags))
+                    .await
+                    .unwrap_or_default()
+            };
+
+            for (mem, score) in project_results {
+                seen_ids.insert(mem.id.clone());
+                all_results.push((mem, score));
+            }
+
+            tracing::info!(
+                query = %body.query_text,
+                project_results = all_results.len(),
+                project_tags = ?tags,
+                "should_recall_phase1_project"
+            );
+        }
+    }
+
+    // Phase 2: If project results are insufficient, supplement with global scope
+    let need_global = all_results.len() < max_results;
+    if need_global {
+        let remaining = max_results - all_results.len();
+        let global_results = if is_zero_vector {
+            store
+                .fts_search(&body.query_text, remaining + 5, Some("global"), None, None)
+                .await
+                .unwrap_or_default()
+        } else {
+            let search_vec = query_vector.as_ref().unwrap();
+            store
+                .vector_search(search_vec, remaining + 5, effective_min_score, Some("global"), None, None)
+                .await
+                .unwrap_or_default()
+        };
+
+        let mut global_count = 0;
+        for (mem, score) in global_results {
+            if !seen_ids.contains(&mem.id) {
+                seen_ids.insert(mem.id.clone());
+                all_results.push((mem, score));
+                global_count += 1;
+                if global_count >= remaining {
+                    break;
+                }
+            }
+        }
+
+        tracing::info!(
+            query = %body.query_text,
+            global_supplement = global_count,
+            total_results = all_results.len(),
+            "should_recall_phase2_global"
+        );
+    }
+
+    // Fallback: if no project_tags provided, do a normal global search
+    if project_tags_slice.is_none() || project_tags_slice.map_or(true, |t| t.is_empty()) {
+        all_results = if is_zero_vector {
+            store
+                .fts_search(&body.query_text, max_results, None, None, None)
+                .await
+                .unwrap_or_default()
+        } else {
+            let search_vec = query_vector.as_ref().unwrap();
+            store
+                .vector_search(search_vec, max_results, effective_min_score, None, None, None)
+                .await
+                .unwrap_or_default()
+        };
+        tracing::info!(query = %body.query_text, "should_recall_no_project_tags_fallback");
+    }
+
+    let results = all_results;
 
     let memories: Vec<MemoryWithScore> = results
         .into_iter()
@@ -224,6 +301,7 @@ pub async fn should_recall(
                 let new_tier = TierManager::with_defaults().evaluate_tier(&memory);
                 if new_tier != old_tier {
                     tracing::info!(memory_id = %memory.id, old_tier = %old_tier, new_tier = %new_tier, access_count = old_count + 1, "tier_promoted_via_recall");
+                    memory.append_tier_change(&old_tier.to_string(), &new_tier.to_string(), "access_via_recall");
                 }
                 memory.tier = new_tier;
                 if let Err(e) = update_store.update(&memory, None).await {

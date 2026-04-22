@@ -219,6 +219,7 @@ impl LanceStore {
             Field::new("provenance", DataType::Utf8, true),
             Field::new("version", DataType::UInt64, true),
             Field::new("provenance_source_id", DataType::Utf8, true),
+            Field::new("tier_history", DataType::Utf8, true),
         ]))
     }
 
@@ -457,6 +458,7 @@ impl LanceStore {
                 Arc::new(StringArray::from(vec![option_str(&provenance_json)])),
                 Arc::new(UInt64Array::from(vec![memory.version])),
                 Arc::new(StringArray::from(vec![provenance_source_id])),
+                Arc::new(StringArray::from(vec![option_str(&memory.tier_history)])),
             ],
         )
         .map_err(|e| OmemError::Storage(format!("failed to build RecordBatch: {e}")))
@@ -605,6 +607,7 @@ impl LanceStore {
             owner_agent_id: get_str_or("owner_agent_id", ""),
             provenance,
             version,
+            tier_history: get_opt_str("tier_history")?,
         })
     }
 
@@ -773,6 +776,7 @@ impl LanceStore {
         min_score: f32,
         scope_filter: Option<&str>,
         visibility_filter: Option<&str>,
+        tags_filter: Option<&[String]>,
     ) -> Result<Vec<(Memory, f32)>, OmemError> {
         let table = self.open_table().await?;
         let mut query = table
@@ -788,6 +792,11 @@ impl LanceStore {
         }
         if let Some(vis) = visibility_filter {
             filter.push_str(&format!(" AND ({vis})"));
+        }
+        if let Some(tags) = tags_filter {
+            for tag in tags {
+                filter.push_str(&format!(" AND tags LIKE '%{}%'", escape_sql(tag)));
+            }
         }
         query = query.only_if(filter);
 
@@ -825,6 +834,7 @@ impl LanceStore {
         limit: usize,
         scope_filter: Option<&str>,
         visibility_filter: Option<&str>,
+        tags_filter: Option<&[String]>,
     ) -> Result<Vec<(Memory, f32)>, OmemError> {
         let table = self.open_table().await?;
 
@@ -842,6 +852,11 @@ impl LanceStore {
         }
         if let Some(vis) = visibility_filter {
             filter.push_str(&format!(" AND ({vis})"));
+        }
+        if let Some(tags) = tags_filter {
+            for tag in tags {
+                filter.push_str(&format!(" AND tags LIKE '%{}%'", escape_sql(tag)));
+            }
         }
         q = q.postfilter().only_if(filter);
 
@@ -1181,7 +1196,7 @@ mod tests {
         query_vec[0] = 1.0;
 
         let results = store
-            .vector_search(&query_vec, 3, 0.0, None, None)
+            .vector_search(&query_vec, 3, 0.0, None, None, None)
             .await
             .unwrap();
 
@@ -1207,7 +1222,7 @@ mod tests {
         store.create_fts_index().await.unwrap();
 
         let results = store
-            .fts_search("programming language", 10, None, None)
+            .fts_search("programming language", 10, None, None, None)
             .await
             .unwrap();
 

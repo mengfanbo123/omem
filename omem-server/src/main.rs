@@ -92,14 +92,19 @@ async fn main() {
 
     let app = build_router(state.clone());
 
-    // Start lifecycle scheduler: tier evaluation + TTL cleanup every 6 hours
     {
+        let scheduler_interval = std::time::Duration::from_secs(config.scheduler_interval_secs);
         let scheduler = Arc::new(LifecycleScheduler::new(
             state.store_manager.clone(),
-            std::time::Duration::from_secs(6 * 3600),
+            scheduler_interval,
+            config.scheduler_run_on_start,
         ));
         tokio::spawn(async move { scheduler.run().await });
-        tracing::info!("lifecycle_scheduler_started_interval=6h");
+        tracing::info!(
+            interval_secs = config.scheduler_interval_secs,
+            run_on_start = config.scheduler_run_on_start,
+            "lifecycle_scheduler_started"
+        );
     }
 
     let addr = format!("0.0.0.0:{}", config.port);

@@ -19,6 +19,8 @@ pub struct OmemConfig {
     pub recall_llm_api_key: String,
     pub recall_llm_model: String,
     pub recall_llm_base_url: String,
+    pub scheduler_interval_secs: u64,
+    pub scheduler_run_on_start: bool,
 }
 
 impl Default for OmemConfig {
@@ -41,6 +43,8 @@ impl Default for OmemConfig {
             recall_llm_api_key: String::new(),
             recall_llm_model: String::new(),
             recall_llm_base_url: String::new(),
+            scheduler_interval_secs: 21600, // 6h
+            scheduler_run_on_start: true,
         }
     }
 }
@@ -71,6 +75,14 @@ impl OmemConfig {
             recall_llm_api_key: env::var("OMEM_RECALL_LLM_API_KEY").unwrap_or(defaults.recall_llm_api_key),
             recall_llm_model: env::var("OMEM_RECALL_LLM_MODEL").unwrap_or(defaults.recall_llm_model),
             recall_llm_base_url: env::var("OMEM_RECALL_LLM_BASE_URL").unwrap_or(defaults.recall_llm_base_url),
+            scheduler_interval_secs: env::var("OMEM_SCHEDULER_INTERVAL_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(defaults.scheduler_interval_secs),
+            scheduler_run_on_start: env::var("OMEM_SCHEDULER_RUN_ON_START")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(defaults.scheduler_run_on_start),
         }
     }
 

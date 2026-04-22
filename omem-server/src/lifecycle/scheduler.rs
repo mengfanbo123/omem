@@ -10,19 +10,27 @@ use crate::store::StoreManager;
 pub struct LifecycleScheduler {
     store_manager: Arc<StoreManager>,
     interval: Duration,
+    run_on_start: bool,
     max_memories_per_store: usize,
 }
 
 impl LifecycleScheduler {
-    pub fn new(store_manager: Arc<StoreManager>, interval: Duration) -> Self {
+    pub fn new(store_manager: Arc<StoreManager>, interval: Duration, run_on_start: bool) -> Self {
         Self {
             store_manager,
             interval,
+            run_on_start,
             max_memories_per_store: 5000,
         }
     }
 
     pub async fn run(self: Arc<Self>) {
+        if self.run_on_start {
+            info!("lifecycle_scheduler_running_on_start");
+            if let Err(e) = self.run_once().await {
+                warn!(error = %e, "lifecycle_scheduler_initial_run_failed");
+            }
+        }
         let mut interval = tokio::time::interval(self.interval);
         loop {
             interval.tick().await;
@@ -78,6 +86,7 @@ impl LifecycleScheduler {
                     access_count = memory.access_count,
                     "tier_changed_by_scheduler"
                 );
+                memory.append_tier_change(&old_tier.to_string(), &new_tier.to_string(), "scheduled_evaluation");
                 memory.tier = new_tier;
                 if let Err(e) = store.update(&memory, None).await {
                     warn!(memory_id = %memory.id, error = %e, "scheduler_failed_to_update_tier");
