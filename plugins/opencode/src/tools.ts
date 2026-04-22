@@ -40,8 +40,7 @@ export function buildTools(client: OmemClient, containerTags: string[], context:
           .describe("Optional categorization tags"),
         source: tool.schema
           .string()
-          .optional()
-          .describe("Origin context, e.g. 'conversation', 'code-review'"),
+          .describe("Origin context, e.g. 'conversation', 'code-review', 'user-input'"),
         scope: tool.schema
           .string()
           .optional()
